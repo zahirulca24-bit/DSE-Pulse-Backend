@@ -109,7 +109,7 @@ def test_collector_runs_in_background_and_upserts_database(
     try:
         queued = database_client.post(
             "/collector/run",
-            json={"trade_date": "2026-07-01"},
+            json={"trade_date": "2026-07-01", "collect_missing": False},
             headers={"X-Collector-Token": "server-secret"},
         )
         latest = database_client.get("/collector/latest")
