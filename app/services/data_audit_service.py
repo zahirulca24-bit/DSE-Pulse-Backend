@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import DatabaseManager
 from app.db.models import OhlcDaily
-from app.schemas.data import DataAuditResponse
+from app.schemas.data import DataAuditResponse, StaleSymbolItem, StaleSymbolsResponse
 
 
 class DataAuditService:
@@ -146,6 +146,63 @@ class DataAuditService:
             audited_at=audited_at,
         )
 
+    def stale_symbols(self) -> StaleSymbolsResponse:
+        """Return exact symbols whose latest row predates the dataset latest date."""
+
+        audited_at = datetime.now(UTC)
+        if not self._manager.has_tables(("ohlc_daily",)):
+            return self._empty_stale("Database OHLC table is unavailable.", audited_at)
+
+        try:
+            with self._manager.session() as session:
+                dataset_latest = session.scalar(select(func.max(OhlcDaily.trade_date)))
+                if dataset_latest is None:
+                    return self._empty_stale("Database OHLC table contains no rows.", audited_at)
+
+                symbol_stats = (
+                    select(
+                        OhlcDaily.symbol.label("symbol"),
+                        func.max(OhlcDaily.trade_date).label("latest_trade_date"),
+                        func.count(OhlcDaily.id).label("rows_count"),
+                    )
+                    .group_by(OhlcDaily.symbol)
+                    .subquery()
+                )
+                records = session.execute(
+                    select(
+                        symbol_stats.c.symbol,
+                        symbol_stats.c.latest_trade_date,
+                        symbol_stats.c.rows_count,
+                    )
+                    .where(symbol_stats.c.latest_trade_date < dataset_latest)
+                    .order_by(symbol_stats.c.latest_trade_date, symbol_stats.c.symbol)
+                ).all()
+        except (SQLAlchemyError, RuntimeError):
+            return self._empty_stale("Stale-symbol audit could not be completed.", audited_at)
+
+        items = [
+            StaleSymbolItem(
+                symbol=str(record.symbol),
+                latest_trade_date=record.latest_trade_date,
+                rows_count=int(record.rows_count),
+                lag_days=(dataset_latest - record.latest_trade_date).days,
+            )
+            for record in records
+        ]
+        return StaleSymbolsResponse(
+            ok=True,
+            data_source="database",
+            dataset_latest_trade_date=dataset_latest,
+            count=len(items),
+            symbols=items,
+            message=(
+                "Stale symbols require suspension or data-gap review."
+                if items
+                else "All symbols have a row on the dataset latest trade date."
+            ),
+            audited_at=audited_at,
+        )
+
     @staticmethod
     def _empty(message: str, audited_at: datetime) -> DataAuditResponse:
         return DataAuditResponse(
@@ -165,5 +222,17 @@ class DataAuditService:
             stale_symbols_count=0,
             scanner_ready=False,
             warnings=[message],
+            audited_at=audited_at,
+        )
+
+    @staticmethod
+    def _empty_stale(message: str, audited_at: datetime) -> StaleSymbolsResponse:
+        return StaleSymbolsResponse(
+            ok=False,
+            data_source="none",
+            dataset_latest_trade_date=None,
+            count=0,
+            symbols=[],
+            message=message,
             audited_at=audited_at,
         )
