@@ -15,7 +15,9 @@ services:
         value: 0.1.0
       - key: APP_MODE
         value: demo
-      - key: FRONTEND_ORIGIN
-        sync: false
       - key: OHLC_STORAGE_PATH
         value: storage/dse_ohlc.csv
+      - key: SCANNER_STORAGE_PATH
+        value: storage/scanner_latest.json
+      - key: FRONTEND_ORIGIN
+        sync: false

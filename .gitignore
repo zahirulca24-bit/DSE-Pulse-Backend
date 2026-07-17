@@ -8,4 +8,5 @@ __pycache__/
 coverage.xml
 htmlcov/
 storage/dse_ohlc.csv
+storage/scanner_latest.json
 storage/*.tmp

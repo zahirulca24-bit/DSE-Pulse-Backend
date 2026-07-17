@@ -7,13 +7,13 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ScannerStatusResponse(BaseModel):
-    """Scanner readiness without claiming an active worker or execution layer."""
-
     model_config = ConfigDict(extra="forbid")
 
     scanner_ready: bool
-    mode: str
-    universe_source: Literal["demo"]
+    mode: Literal["local_csv", "no_data"]
+    universe_source: Literal["local_csv", "none"]
+    data_available: bool
+    latest_scan_available: bool
     last_scan_at: datetime | None
     qualified_rule: Literal["A+ and A only"]
     watch_rule: Literal["B+ watch only"]

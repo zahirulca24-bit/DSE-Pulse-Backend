@@ -47,6 +47,9 @@ def test_scanner_status_has_execution_disabled(client: TestClient) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["scanner_ready"] is True
+    assert payload["scanner_ready"] is False
+    assert payload["mode"] == "no_data"
+    assert payload["data_available"] is False
+    assert payload["latest_scan_available"] is False
     assert payload["execution_enabled"] is False
     assert payload["last_scan_at"] is None

@@ -7,13 +7,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime settings with safe demo defaults."""
+    """Runtime settings with safe local defaults."""
 
     app_name: str = "DSE Pulse Backend"
     app_version: str = "0.1.0"
     app_mode: str = "demo"
     frontend_origin: str = ""
     ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
+    scanner_storage_path: Path = Path("storage/scanner_latest.json")
 
     model_config = SettingsConfigDict(
         env_file=".env",
