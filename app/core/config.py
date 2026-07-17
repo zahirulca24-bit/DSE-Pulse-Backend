@@ -1,6 +1,7 @@
 """Environment-backed application configuration."""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_mode: str = "demo"
     frontend_origin: str = ""
+    ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
 
     model_config = SettingsConfigDict(
         env_file=".env",
