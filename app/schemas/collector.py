@@ -10,11 +10,12 @@ CollectorStatus = Literal["queued", "running", "completed", "failed"]
 
 
 class CollectorRunRequest(BaseModel):
-    """Optional target date for a manual collection run."""
+    """Target date and safe missing-date backfill preference."""
 
     model_config = ConfigDict(extra="forbid")
 
     trade_date: date | None = None
+    collect_missing: bool = True
 
 
 class CollectorRunResponse(BaseModel):
