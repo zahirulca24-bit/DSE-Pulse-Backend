@@ -1,4 +1,4 @@
-"""OHLC row and query response schemas."""
+"""OHLC read schemas."""
 
 from datetime import date
 from typing import Literal
@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class OhlcRow(BaseModel):
-    """A normalized DSE OHLC row."""
-
     model_config = ConfigDict(extra="forbid")
 
     symbol: str
@@ -23,21 +21,13 @@ class OhlcRow(BaseModel):
 
 
 class SymbolsResponse(BaseModel):
-    """Available symbols from the stored local CSV."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    data_source: Literal["none", "local_csv"]
+    data_source: Literal["database", "local_csv", "none"]
     symbols_count: int
     symbols: list[str]
 
 
 class OhlcResponse(BaseModel):
-    """Filtered OHLC rows for one symbol."""
-
-    model_config = ConfigDict(extra="forbid")
-
     symbol: str
-    data_source: Literal["none", "local_csv"]
+    data_source: Literal["database", "local_csv", "none"]
     rows_count: int
     rows: list[OhlcRow]

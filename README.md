@@ -1,75 +1,201 @@
 # DSE Pulse Backend
 
-FastAPI backend for the separate DSE Pulse frontend. It supports deterministic demo signals, local DSE OHLC CSV ingestion/read APIs, and a manual scanner derived only from the imported local CSV.
+FastAPI backend for the separate DSE Pulse frontend. It supports deterministic demo signals, local DSE OHLC CSV ingestion, a manual local scanner, and an optional SQLAlchemy Postgres connection suitable for a Supabase database URL.
 
-## Current scope
+The backend starts and keeps `/health` available when no database is configured or when the configured database cannot be reached.
 
-- Lightweight health and readiness endpoints
-- Deterministic demo fallback signals
-- CSV preview and normalized local import
-- Local data status, symbol list, and OHLC queries
-- Manual deterministic scanner with latest-result persistence
-- Central locked grade rules
-- Explicit CORS configuration
-- Pytest, Ruff, Mypy, GitHub Actions, and Render configuration
+## Safety scope
 
-This project does **not** include live DSE scraping, broker connectivity, order execution, real trading, Supabase, authentication, paid data vendors, or AI recommendations. The API does not provide financial advice.
+This project does **not** include:
+
+- Live DSE scraping
+- Broker connectivity
+- Order execution
+- Live or real-money trading
+- Financial advice
+- Authentication
+- AI recommendations
+- Background auto-trading workers
+
+No service-role key, Supabase API key, broker key, or database credential is committed to the repository or returned by an API response.
 
 ## Requirements
 
 - Python 3.11+
+- Optional Postgres/Supabase database URL
 
-## Setup and run
+Runtime database packages:
+
+- SQLAlchemy
+- Psycopg 3 binary distribution
+
+## Local setup
 
 ```bash
 python -m venv .venv
-python -m pip install -r requirements-dev.txt
 ```
 
 Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 macOS/Linux:
 
 ```bash
 source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
 cp .env.example .env
+```
+
+Run:
+
+```bash
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 OpenAPI documentation is available at `/docs`.
 
+## Environment configuration
+
+```env
+APP_NAME="DSE Pulse Backend"
+APP_VERSION="0.1.0"
+APP_MODE="demo"
+FRONTEND_ORIGIN=""
+DATABASE_URL=""
+SUPABASE_DATABASE_URL=""
+OHLC_STORAGE_PATH="storage/dse_ohlc.csv"
+SCANNER_STORAGE_PATH="storage/scanner_latest.json"
+```
+
+Database URL priority:
+
+1. `DATABASE_URL`
+2. `SUPABASE_DATABASE_URL`
+3. Database not configured
+
+Use the direct or pooler Postgres URL supplied by the database provider. Do not place the URL in source code, logs, screenshots, or API responses.
+
+The backend does not use a Supabase service-role key in this phase.
+
+## Data source priority
+
+Read and scanner source selection follows:
+
+1. Initialized and reachable database tables
+2. Local CSV storage
+3. Deterministic demo fallback, where supported
+
+`GET /data/source` shows the current preferred source and fallback order.
+
+A reachable database connection is not enough by itself to activate database reads. Run `POST /db/init` first so the required tables exist.
+
 ## API endpoints
+
+### Existing foundation
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/health` | Lightweight process health |
-| GET | `/status` | Backend and local CSV status |
+| GET | `/health` | Lightweight process liveness |
+| GET | `/status` | Backend and active-source status |
 | GET | `/scanner/status` | Scanner/data/latest-result readiness |
-| POST | `/scanner/run` | Run the local scanner manually |
-| GET | `/scanner/latest` | Return the latest stored scan |
-| GET | `/scanner/candidates` | Filter latest candidates |
-| GET | `/signals` | Latest qualified/watch scan results or demo fallback |
+| GET | `/signals` | Database/local latest signals or demo fallback |
+
+### Local CSV and reads
+
+| Method | Endpoint | Purpose |
+|---|---|---|
 | POST | `/data/ohlc/preview` | Validate CSV without saving |
-| POST | `/data/ohlc/import` | Save normalized valid rows locally |
-| GET | `/data/status` | Local CSV availability and counts |
-| GET | `/symbols` | Alphabetically sorted local symbols |
-| GET | `/ohlc/{symbol}` | Local OHLC rows for one symbol |
+| POST | `/data/ohlc/import` | Save normalized valid rows to local CSV |
+| GET | `/data/status` | Local CSV status and counts |
+| GET | `/data/source` | Active source and fallback order |
+| GET | `/symbols` | Database-first symbol list |
+| GET | `/ohlc/{symbol}` | Database/local OHLC rows |
 
-## Local CSV requirement
+### Optional database
 
-The scanner reads only:
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/db/status` | Safe configuration and connection check |
+| POST | `/db/init` | Create missing tables only |
+| POST | `/data/ohlc/import-db` | Validate and upsert CSV rows into database |
 
-```text
-storage/dse_ohlc.csv
+### Scanner
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/scanner/run` | Run the scanner manually |
+| GET | `/scanner/latest` | Database-first latest scanner result |
+| GET | `/scanner/candidates` | Filter latest candidates |
+
+## Database status
+
+```bash
+curl http://localhost:8000/db/status
 ```
 
-Import a CSV before running the scanner. Accepted required headers are:
+Not configured:
+
+```json
+{
+  "configured": false,
+  "connected": false,
+  "database_type": "postgres",
+  "message": "DATABASE_URL is not configured."
+}
+```
+
+The endpoint never returns the database URL, hostname, username, or password.
+
+## Initialize tables
+
+```bash
+curl -X POST http://localhost:8000/db/init
+```
+
+This operation uses SQLAlchemy `create_all` semantics:
+
+- Creates missing tables
+- Does not drop tables
+- Does not truncate tables
+- Does not delete existing data
+
+This is a foundation mechanism, not a migration framework. Alembic migrations remain future work.
+
+## Database models
+
+### `ohlc_daily`
+
+Stores normalized OHLC rows with:
+
+- Unique `(symbol, trade_date)` constraint
+- Symbol index
+- Trade-date index
+- Uppercase symbols through repository normalization
+- Created and updated timestamps
+
+### `scanner_runs`
+
+Stores one summary record per manual run with a unique `run_id`. It contains no broker or execution fields.
+
+### `scanner_candidates`
+
+Stores at most 50 final candidates per run and links them to `scanner_runs.run_id`.
+
+Candidate text is generated by the existing deterministic scanner. It does not use buy, sell, order, or execution instructions.
+
+## Database CSV import
+
+```bash
+curl -X POST http://localhost:8000/data/ohlc/import-db \
+  -F "file=@dse_ohlc.csv"
+```
+
+Accepted required headers:
 
 ```text
 symbol,date,open,high,low,close,volume
@@ -81,141 +207,65 @@ or:
 symbol,trade_date,open,high,low,close,volume
 ```
 
-Optional columns are `trade` and `value`. Imports are normalized to:
+Optional:
 
 ```text
-symbol,trade_date,open,high,low,close,volume,trade,value
+trade,value
 ```
 
-A successful CSV replacement clears the previous scanner result so `/signals` cannot use a scan derived from the prior imported dataset.
+Behavior:
 
-## Scanner engine
+- Uses the same validation as local CSV import
+- Skips invalid rows
+- Normalizes symbols to uppercase
+- Upserts by `(symbol, trade_date)`
+- Reports inserted and updated unique rows
+- Does not save data when database configuration, connection, or tables are unavailable
+- Never claims Supabase connectivity unless a real connection check succeeds
 
-The scanner is manual only. `POST /scanner/run`:
+## OHLC source selection
 
-1. Reads the normalized local CSV.
-2. Groups rows by uppercase symbol.
-3. Sorts each symbol by `trade_date` ascending.
-4. Requires at least 60 rows per eligible symbol.
-5. Uses the latest imported row as the latest closed row.
-6. Calculates indicators with the Python standard library.
-7. Applies transparent deterministic scoring.
-8. Uses the central grade classifier.
-9. Stores at most 50 final candidates in `storage/scanner_latest.json`.
+`GET /ohlc/{symbol}` supports:
 
-No external site, random value, broker, background worker, or order capability is used.
+- `source=auto` — database first, then local CSV
+- `source=database` — database only; safe HTTP 503 if unavailable
+- `source=local_csv` — local CSV only
+- `limit` — default 100, maximum 1000
+- `start_date` — optional `YYYY-MM-DD`
+- `end_date` — optional `YYYY-MM-DD`
 
-### Indicators
+No fake OHLC rows are generated.
 
-- SMA 20
-- SMA 50
-- EMA 20
-- EMA 50
-- RSI 14 using Wilder smoothing
-- 20-row average volume
-- Volume ratio
-- 20-row high
-- 20-row low
-- Previous 20-row high for breakout detection
+## Scanner database/local fallback
 
-### Setup labels
+`POST /scanner/run` behavior:
 
-- `EMA Trend Pullback`
-- `20-Day Breakout`
-- `RSI Momentum Recovery`
-- `SMA Trend Continuation`
-- `Rejected / No Setup`
+1. Uses database OHLC rows when initialized database storage is available.
+2. Otherwise uses local CSV rows.
+3. Returns `no_data` when neither source contains usable rows.
+4. Saves the latest result to database when scanner tables are available.
+5. Falls back to local `storage/scanner_latest.json` if database persistence is unavailable.
 
-### Scoring model
+`GET /scanner/latest` and `/signals` use:
 
-The total is capped at 100:
+1. Latest database scanner run
+2. Latest local scanner JSON
+3. Demo signals for `/signals` only
 
-| Component | Maximum |
-|---|---:|
-| Trend alignment | 30 |
-| RSI momentum | 20 |
-| Volume strength | 20 |
-| Deterministic setup | 20 |
-| Display-only range ratio | 10 |
+The scanner remains manual. It cannot place orders or execute trades.
 
-The display-only range ratio is:
+## Local storage limitation
 
-```text
-support = 20-row low
-resistance = 20-row high
-risk = latest_close - support
-reward = resistance - latest_close
-ratio = reward / risk
-```
-
-Invalid or non-positive ranges produce `0`. This is not a recommendation, position-size calculation, or execution instruction.
-
-### Locked grades
-
-Grade logic exists only in `app/core/signal_rules.py`:
-
-- A+ = 95–100 → `qualified`
-- A = 90–94 → `qualified`
-- B+ = 85–89 → `watch`
-- Reject = below 85 → `rejected`
-
-### Candidate metadata
-
-The OHLC CSV does not contain company or sector columns. `company` therefore remains `null`. A small local map supplies approved sector names for known symbols; unknown symbols return `sector=null` with a warning instead of inventing metadata.
-
-## Scanner endpoints
-
-Run manually:
-
-```bash
-curl -X POST http://localhost:8000/scanner/run
-```
-
-Read latest result:
-
-```bash
-curl http://localhost:8000/scanner/latest
-```
-
-Filter latest candidates:
-
-```bash
-curl "http://localhost:8000/scanner/candidates?grade=A%2B&signal_status=qualified&limit=20"
-```
-
-Supported filters are `grade`, `signal_status`, `sector`, and `limit`. The default limit is 50 and the maximum is 100, although the stored latest candidate set itself is capped at 50.
-
-## `/signals` behavior
-
-- When a valid latest scan exists, `/signals` returns its A+, A, and B+ candidates and labels `data_source` as `local_csv`.
-- Reject candidates remain in `/scanner/latest` but are omitted from `/signals`.
-- When no valid scanner result exists, `/signals` returns the original deterministic demo fallback and labels `data_source` as `demo`.
-- An empty local qualified/watch list remains an empty local result; it does not silently switch to demo data.
-
-## Storage limitations
-
-Default paths:
+Local paths:
 
 ```text
 storage/dse_ohlc.csv
 storage/scanner_latest.json
 ```
 
-These paths are configurable through `OHLC_STORAGE_PATH` and `SCANNER_STORAGE_PATH`.
+Local files are not durable production storage. Render service filesystems may be ephemeral after restart, redeploy, or instance replacement.
 
-Local file storage is not durable production storage. Render free-service filesystems may be ephemeral and files can disappear after restart, redeploy, or instance replacement. Supabase/PostgreSQL persistence and a durable scanner-result repository remain future work.
-
-## Safety boundaries
-
-- No live market connection
-- No DSE website scraping
-- No broker connection
-- No order placement
-- No real trading
-- No background auto-trading worker
-- No authentication in this phase
-- No AI recommendation
-- No financial advice
+For Render deployment, configure a Postgres/Supabase `DATABASE_URL` and run `/db/init` before database imports. Confirm database network and SSL settings using the provider's connection information.
 
 ## Quality checks
 
@@ -225,12 +275,15 @@ python -m ruff check .
 python -m mypy app
 ```
 
-## Future integration plan
+Tests do not require real Supabase credentials. SQLite is used to verify models, constraints, initialization, upsert behavior, source priority, and scanner persistence.
 
-1. Persistent Supabase/PostgreSQL OHLC storage
-2. Persistent scanner result/history repository
-3. Controlled data ingestion pipeline
-4. Scanner performance optimization for larger datasets
-5. Render deployment and runtime verification
+## Remaining future work
 
-Future integrations must preserve the current safety boundaries until separately approved.
+1. Alembic schema migrations
+2. Durable scanner history and retention policy
+3. Database import performance validation using the full DSE dataset
+4. Stale scanner-result invalidation after database OHLC updates
+5. Render plus Supabase runtime deployment proof
+6. Authentication and authorization in a separately approved phase
+
+Future work must preserve all current safety boundaries.

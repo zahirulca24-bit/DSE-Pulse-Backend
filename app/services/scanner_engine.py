@@ -23,7 +23,7 @@ class ScannerEngine:
     def __init__(self, indicator_service: IndicatorService | None = None) -> None:
         self._indicators = indicator_service or IndicatorService()
 
-    def run(self, rows: list[OhlcRow]) -> ScannerResultResponse:
+    def run(self, rows: list[OhlcRow], source: str = "local_csv") -> ScannerResultResponse:
         grouped: dict[str, list[OhlcRow]] = defaultdict(list)
         for row in rows:
             grouped[row.symbol].append(row)
@@ -34,7 +34,7 @@ class ScannerEngine:
             if len(symbol_rows) < _MINIMUM_ROWS:
                 continue
             eligible_symbols += 1
-            all_candidates.append(self._candidate(symbol, symbol_rows))
+            all_candidates.append(self._candidate(symbol, symbol_rows, source))
         qualified = sum(candidate.signal_status == "qualified" for candidate in all_candidates)
         watch = sum(candidate.signal_status == "watch" for candidate in all_candidates)
         rejected = sum(candidate.signal_status == "rejected" for candidate in all_candidates)
@@ -52,8 +52,8 @@ class ScannerEngine:
             message = "No symbols had the minimum 60 OHLC rows required for scanner calculations."
         return ScannerResultResponse(
             ok=True,
-            mode="local_csv",
-            data_source="local_csv",
+            mode="database" if source == "database" else "local_csv",
+            data_source="database" if source == "database" else "local_csv",
             scanned_symbols=len(grouped),
             eligible_symbols=eligible_symbols,
             qualified_count=qualified,
@@ -64,7 +64,7 @@ class ScannerEngine:
             candidates=selected,
         )
 
-    def _candidate(self, symbol: str, rows: list[OhlcRow]) -> ScannerCandidate:
+    def _candidate(self, symbol: str, rows: list[OhlcRow], source: str) -> ScannerCandidate:
         latest = rows[-1]
         indicators = self._indicators.calculate(rows)
         trend = self._trend(latest.close, indicators)
@@ -96,7 +96,7 @@ class ScannerEngine:
             risk_reward=round(risk_reward, 2),
             reasons=reasons,
             warnings=warnings,
-            data_mode="Local CSV",
+            data_mode="Database" if source == "database" else "Local CSV",
         )
 
     @staticmethod

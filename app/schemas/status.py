@@ -7,13 +7,11 @@ from pydantic import BaseModel, ConfigDict
 
 
 class BackendStatusResponse(BaseModel):
-    """Truthful integration readiness summary."""
-
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["ok"]
     mode: str
-    data_source: Literal["demo", "local_csv"]
+    data_source: Literal["demo", "local_csv", "database"]
     backend_ready: bool
     database_connected: bool
     live_market_connected: bool

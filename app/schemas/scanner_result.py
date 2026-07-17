@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.sectors import SectorName
 from app.core.signal_rules import SignalGrade, SignalStatus
 
-ScannerMode = Literal["local_csv", "no_data", "no_scan"]
+ScannerMode = Literal["database", "local_csv", "no_data", "no_scan"]
 SetupType = Literal[
     "EMA Trend Pullback",
     "20-Day Breakout",
@@ -43,7 +43,7 @@ class ScannerCandidate(BaseModel):
     risk_reward: float = Field(ge=0)
     reasons: list[str]
     warnings: list[str]
-    data_mode: Literal["Local CSV"]
+    data_mode: Literal["Database", "Local CSV"]
 
 
 class ScannerResultResponse(BaseModel):
@@ -51,7 +51,7 @@ class ScannerResultResponse(BaseModel):
 
     ok: bool
     mode: ScannerMode
-    data_source: Literal["local_csv", "none"]
+    data_source: Literal["database", "local_csv", "none"]
     scanned_symbols: int
     eligible_symbols: int
     qualified_count: int
@@ -67,7 +67,7 @@ class ScannerCandidatesResponse(BaseModel):
 
     ok: bool
     mode: ScannerMode
-    data_source: Literal["local_csv", "none"]
+    data_source: Literal["database", "local_csv", "none"]
     message: str
     candidates_count: int
     candidates: list[ScannerCandidate]

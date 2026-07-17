@@ -1,4 +1,4 @@
-"""CSV preview, import, and local data status schemas."""
+"""CSV ingestion and data status schemas."""
 
 from datetime import date
 from typing import Literal
@@ -9,8 +9,6 @@ from app.schemas.ohlc import OhlcRow
 
 
 class DataPreviewResponse(BaseModel):
-    """Validation result for an uploaded CSV that is not saved."""
-
     model_config = ConfigDict(extra="forbid")
 
     ok: bool
@@ -28,8 +26,6 @@ class DataPreviewResponse(BaseModel):
 
 
 class DataImportResponse(BaseModel):
-    """Result of validating and saving normalized valid rows locally."""
-
     model_config = ConfigDict(extra="forbid")
 
     ok: bool
@@ -45,12 +41,10 @@ class DataImportResponse(BaseModel):
 
 
 class DataStatusResponse(BaseModel):
-    """Current local CSV availability and derived metadata."""
-
     model_config = ConfigDict(extra="forbid")
 
     data_available: bool
-    data_source: Literal["none", "local_csv"]
+    data_source: Literal["database", "local_csv", "none"]
     stored_path: str | None
     symbols_count: int | None
     rows_count: int | None

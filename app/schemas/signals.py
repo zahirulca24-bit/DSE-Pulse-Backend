@@ -30,7 +30,7 @@ class SignalItem(BaseModel):
 class SignalsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["demo", "local_csv"]
-    data_source: Literal["demo", "local_csv"]
+    mode: Literal["demo", "database", "local_csv"]
+    data_source: Literal["demo", "database", "local_csv"]
     signals: list[SignalItem | ScannerCandidate]
     rules: dict[str, str]
