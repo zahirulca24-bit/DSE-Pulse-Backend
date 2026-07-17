@@ -1,6 +1,6 @@
 """CSV ingestion and data status schemas."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -51,3 +51,27 @@ class DataStatusResponse(BaseModel):
     latest_trade_date: date | None
     earliest_trade_date: date | None
     message: str
+
+
+class DataAuditResponse(BaseModel):
+    """Database OHLC integrity and scanner-readiness summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    data_source: Literal["database", "none"]
+    rows_count: int
+    symbols_count: int
+    earliest_trade_date: date | None
+    latest_trade_date: date | None
+    duplicate_symbol_date_rows: int
+    zero_volume_rows: int
+    non_positive_price_rows: int
+    invalid_ohlc_rows: int
+    symbols_with_fewer_than_60_rows: int
+    latest_date_symbols_count: int
+    latest_date_coverage_percent: float
+    stale_symbols_count: int
+    scanner_ready: bool
+    warnings: list[str]
+    audited_at: datetime
