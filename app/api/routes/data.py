@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.db.database import DatabaseManager
 from app.repositories.ohlc_db_repository import OhlcDbRepository
-from app.schemas.data import DataAuditResponse, DataImportResponse, DataPreviewResponse, DataStatusResponse
+from app.schemas.data import (
+    DataAuditResponse,
+    DataImportResponse,
+    DataPreviewResponse,
+    DataStatusResponse,
+    StaleSymbolsResponse,
+)
 from app.schemas.database import DatabaseImportResponse, DataSourceResponse
 from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvIngestionService
 from app.services.data_audit_service import DataAuditService
@@ -133,6 +139,15 @@ def get_data_audit(
     """Return transparent database OHLC quality and scanner-readiness metrics."""
 
     return audit_service.audit()
+
+
+@router.get("/audit/stale-symbols", response_model=StaleSymbolsResponse)
+def get_stale_symbols(
+    audit_service: Annotated[DataAuditService, Depends(get_data_audit_service)],
+) -> StaleSymbolsResponse:
+    """Return exact symbols that are behind the dataset latest trade date."""
+
+    return audit_service.stale_symbols()
 
 
 @router.get("/status", response_model=DataStatusResponse)
