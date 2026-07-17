@@ -7,6 +7,7 @@ from app.db.database import DatabaseManager
 from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.repositories.scanner_db_repository import ScannerDbRepository
 from app.services.csv_ingestion_service import CsvIngestionService
+from app.services.data_audit_service import DataAuditService
 from app.services.indicator_service import IndicatorService
 from app.services.ohlc_repository import OhlcRepository
 from app.services.scanner_engine import ScannerEngine
@@ -22,6 +23,10 @@ def get_database_manager() -> DatabaseManager:
 
 def get_csv_ingestion_service() -> CsvIngestionService:
     return CsvIngestionService()
+
+
+def get_data_audit_service() -> DataAuditService:
+    return DataAuditService(get_database_manager())
 
 
 def get_ohlc_repository() -> OhlcRepository:
