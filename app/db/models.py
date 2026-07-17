@@ -1,4 +1,4 @@
-"""SQLAlchemy models for optional OHLC and scanner persistence."""
+"""SQLAlchemy models for optional OHLC, scanner, and collector persistence."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -126,3 +128,35 @@ class ScannerCandidateRecord(Base):
 
         values: list[Any] = [self.setup, *self.reasons_json, *self.warnings_json]
         return tuple(str(value) for value in values)
+
+
+class CollectorRun(Base):
+    """One manual DSE data collection job."""
+
+    __tablename__ = "collector_runs"
+    __table_args__ = (
+        Index("ix_collector_runs_status", "status"),
+        Index("ix_collector_runs_requested_trade_date", "requested_trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    requested_trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="bdshare")
+    fetched_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    collected_symbols: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    inserted_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invalid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    missing_symbols_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    warnings_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scanner_refresh_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
