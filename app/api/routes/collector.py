@@ -40,7 +40,7 @@ def run_collector(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    background_tasks.add_task(service.execute, job.job_id)
+    background_tasks.add_task(service.execute, job.job_id, request.collect_missing)
     return job
 
 
