@@ -66,6 +66,7 @@ class CollectorService:
             raise CollectorUnavailableError("Collector table is unavailable. Run POST /db/init after deployment.")
         if not self._ohlc_repository.is_available():
             raise CollectorUnavailableError("Database OHLC storage is unavailable.")
+        self._repository.fail_stale_active()
         active = self._repository.get_active()
         if active is not None:
             raise CollectorConflictError(f"Collector job {active.job_id} is already {active.status}.")
