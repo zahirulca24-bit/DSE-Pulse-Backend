@@ -17,3 +17,5 @@ services:
         value: demo
       - key: FRONTEND_ORIGIN
         sync: false
+      - key: OHLC_STORAGE_PATH
+        value: storage/dse_ohlc.csv
