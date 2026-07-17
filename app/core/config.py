@@ -1,0 +1,37 @@
+"""Environment-backed application configuration."""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings with safe demo defaults."""
+
+    app_name: str = "DSE Pulse Backend"
+    app_version: str = "0.1.0"
+    app_mode: str = "demo"
+    frontend_origin: str = ""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Return explicit allowed frontend origins without wildcard access."""
+
+        origins = ["http://localhost:3000", "http://localhost:5173"]
+        production_origin = self.frontend_origin.strip().rstrip("/")
+        if production_origin and production_origin not in origins:
+            origins.append(production_origin)
+        return origins
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return a cached settings instance."""
+
+    return Settings()
