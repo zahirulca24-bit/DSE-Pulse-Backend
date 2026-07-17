@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.db.database import DatabaseManager
 from app.repositories.ohlc_db_repository import OhlcDbRepository
-from app.schemas.data import DataImportResponse, DataPreviewResponse, DataStatusResponse
+from app.schemas.data import DataAuditResponse, DataImportResponse, DataPreviewResponse, DataStatusResponse
 from app.schemas.database import DatabaseImportResponse, DataSourceResponse
 from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvIngestionService
+from app.services.data_audit_service import DataAuditService
 from app.services.dependencies import (
     get_csv_ingestion_service,
+    get_data_audit_service,
     get_database_manager,
     get_ohlc_db_repository,
     get_ohlc_repository,
@@ -122,6 +124,15 @@ async def import_ohlc_database(
         latest_trade_date=result.latest_trade_date,
         message="DSE OHLC CSV imported into database.",
     )
+
+
+@router.get("/audit", response_model=DataAuditResponse)
+def get_data_audit(
+    audit_service: Annotated[DataAuditService, Depends(get_data_audit_service)],
+) -> DataAuditResponse:
+    """Return transparent database OHLC quality and scanner-readiness metrics."""
+
+    return audit_service.audit()
 
 
 @router.get("/status", response_model=DataStatusResponse)
