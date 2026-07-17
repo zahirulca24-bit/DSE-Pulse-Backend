@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import DatabaseManager
@@ -39,6 +39,36 @@ class CollectorRepository:
                 return self._to_schema(record)
         except (SQLAlchemyError, RuntimeError):
             return None
+
+    def fail_stale_active(self, max_age_minutes: int = 30) -> int:
+        """Fail abandoned queued/running jobs so they cannot block future runs forever."""
+
+        if not self.is_available():
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+        completed_at = datetime.now(UTC)
+        try:
+            with self._manager.session() as session:
+                records = list(
+                    session.scalars(
+                        select(CollectorRun).where(
+                            CollectorRun.status.in_(("queued", "running")),
+                            or_(
+                                CollectorRun.started_at < cutoff,
+                                (CollectorRun.started_at.is_(None) & (CollectorRun.created_at < cutoff)),
+                            ),
+                        )
+                    ).all()
+                )
+                for record in records:
+                    record.status = "failed"
+                    record.error_message = "Collector job expired before completion; start a new manual run."
+                    record.completed_at = completed_at
+                    record.scanner_refresh_required = False
+                session.commit()
+                return len(records)
+        except (SQLAlchemyError, RuntimeError):
+            return 0
 
     def get_active(self) -> CollectorRunResponse | None:
         if not self.is_available():
