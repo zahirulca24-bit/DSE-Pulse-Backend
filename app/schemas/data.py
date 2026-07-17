@@ -75,3 +75,28 @@ class DataAuditResponse(BaseModel):
     scanner_ready: bool
     warnings: list[str]
     audited_at: datetime
+
+
+class StaleSymbolItem(BaseModel):
+    """One symbol whose latest row predates the dataset latest trade date."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str
+    latest_trade_date: date
+    rows_count: int
+    lag_days: int
+
+
+class StaleSymbolsResponse(BaseModel):
+    """Detailed stale-symbol list for data-gap and suspension review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    data_source: Literal["database", "none"]
+    dataset_latest_trade_date: date | None
+    count: int
+    symbols: list[StaleSymbolItem]
+    message: str
+    audited_at: datetime
