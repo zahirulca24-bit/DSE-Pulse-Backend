@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,22 +24,32 @@ class FakeCollectorSource:
 
     name = "fake-dse-source"
 
-    def collect(self, trade_date: date, allowed_symbols: set[str]) -> CollectorBatch:
+    def collect_range(
+        self,
+        start_date: date,
+        end_date: date,
+        allowed_symbols: set[str],
+    ) -> CollectorBatch:
         selected = sorted(allowed_symbols)[:1]
-        rows = [
-            OhlcRow(
-                symbol=symbol,
-                trade_date=trade_date,
-                open=101.0,
-                high=104.0,
-                low=100.0,
-                close=103.0,
-                volume=150_000,
-                trade=500,
-                value=15_450_000,
-            )
-            for symbol in selected
-        ]
+        rows: list[OhlcRow] = []
+        candidate = start_date
+        while candidate <= end_date:
+            if candidate.weekday() not in (4, 5):
+                rows.extend(
+                    OhlcRow(
+                        symbol=symbol,
+                        trade_date=candidate,
+                        open=101.0,
+                        high=104.0,
+                        low=100.0,
+                        close=103.0,
+                        volume=150_000,
+                        trade=500,
+                        value=15_450_000,
+                    )
+                    for symbol in selected
+                )
+            candidate += timedelta(days=1)
         return CollectorBatch(
             rows=rows,
             fetched_rows=len(rows),
