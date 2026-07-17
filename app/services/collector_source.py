@@ -34,6 +34,8 @@ class CollectorSource(Protocol):
     def collect(self, trade_date: date, allowed_symbols: set[str]) -> CollectorBatch:
         """Fetch and normalize one completed DSE trading date."""
 
+        ...
+
 
 class BdshareCollectorSource:
     """Fetch one-day historical OHLCV through the maintained bdshare package."""
@@ -74,7 +76,7 @@ class BdshareCollectorSource:
         for raw in raw_records:
             item = {_normalize_key(str(key)): value for key, value in raw.items()}
             symbol = _first_text(item, ("symbol", "tradingcode", "code", "instrument"))
-            row_date = _first_date(item, ("tradedate", "date"))
+            row_date = _first_date(item, ("tradedate", "date", "index"))
             if not symbol or row_date is None:
                 invalid_rows += 1
                 continue
@@ -91,8 +93,8 @@ class BdshareCollectorSource:
             low = _first_float(item, ("low", "lowprice"))
             close = _first_float(item, ("close", "closingprice", "ltp"))
             volume = _first_int(item, ("volume", "totalvolume"))
-            trade = _first_float(item, ("trade", "trades", "totaltrade"), required=False)
-            value = _first_float(item, ("value", "turnover", "totalvalue"), required=False)
+            trade = _first_float(item, ("trade", "trades", "totaltrade"))
+            value = _first_float(item, ("value", "turnover", "totalvalue"))
 
             if None in (open_price, high, low, close, volume):
                 invalid_rows += 1
@@ -171,12 +173,7 @@ def _first_text(item: dict[str, Any], aliases: tuple[str, ...]) -> str | None:
     return text
 
 
-def _first_float(
-    item: dict[str, Any],
-    aliases: tuple[str, ...],
-    *,
-    required: bool = True,
-) -> float | None:
+def _first_float(item: dict[str, Any], aliases: tuple[str, ...]) -> float | None:
     value = _first_value(item, aliases)
     if value is None:
         return None
@@ -188,8 +185,6 @@ def _first_float(
     try:
         return float(text)
     except ValueError:
-        if required:
-            return None
         return None
 
 
