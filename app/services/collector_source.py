@@ -31,20 +31,32 @@ class CollectorSource(Protocol):
 
     name: str
 
-    def collect(self, trade_date: date, allowed_symbols: set[str]) -> CollectorBatch:
-        """Fetch and normalize one completed DSE trading date."""
+    def collect_range(
+        self,
+        start_date: date,
+        end_date: date,
+        allowed_symbols: set[str],
+    ) -> CollectorBatch:
+        """Fetch and normalize approved symbols across an inclusive date range."""
 
         ...
 
 
 class BdshareCollectorSource:
-    """Fetch one-day historical OHLCV through the maintained bdshare package."""
+    """Fetch symbol-specific historical OHLCV through the bdshare package."""
 
     name = "bdshare"
 
-    def collect(self, trade_date: date, allowed_symbols: set[str]) -> CollectorBatch:
+    def collect_range(
+        self,
+        start_date: date,
+        end_date: date,
+        allowed_symbols: set[str],
+    ) -> CollectorBatch:
         if not allowed_symbols:
             raise CollectorSourceError("Collector universe is empty; import audited OHLC data first.")
+        if start_date > end_date:
+            raise CollectorSourceError("Collector date range is invalid.")
 
         try:
             import bdshare  # type: ignore[import-untyped]
@@ -53,99 +65,146 @@ class BdshareCollectorSource:
             if fetcher is None:
                 fetcher = getattr(bdshare, "get_hist_data", None)
             if fetcher is None:
-                raise CollectorSourceError("Installed bdshare version has no historical data function.")
-            frame: Any = fetcher(trade_date.isoformat(), trade_date.isoformat())
+                raise CollectorSourceError(
+                    "Installed bdshare version has no historical data function."
+                )
         except CollectorSourceError:
             raise
         except Exception as exc:
-            raise CollectorSourceError(f"DSE source request failed: {type(exc).__name__}.") from exc
+            raise CollectorSourceError(
+                f"DSE collector dependency failed: {type(exc).__name__}."
+            ) from exc
 
-        if frame is None or bool(getattr(frame, "empty", True)):
-            raise CollectorSourceError(f"No DSE rows were returned for {trade_date.isoformat()}.")
-
-        try:
-            raw_records: list[dict[str, Any]] = frame.reset_index().to_dict(orient="records")
-        except Exception as exc:
-            raise CollectorSourceError("DSE source returned an unsupported table structure.") from exc
-
-        normalized: dict[str, OhlcRow] = {}
+        normalized: dict[tuple[str, date], OhlcRow] = {}
+        fetched_rows = 0
         invalid_rows = 0
-        outside_universe = 0
+        failed_symbols: list[str] = []
+        empty_symbols: list[str] = []
         wrong_date_rows = 0
 
-        for raw in raw_records:
-            item = {_normalize_key(str(key)): value for key, value in raw.items()}
-            symbol = _first_text(item, ("symbol", "tradingcode", "code", "instrument"))
-            row_date = _first_date(item, ("tradedate", "date", "index"))
-            if not symbol or row_date is None:
-                invalid_rows += 1
-                continue
-            symbol = symbol.upper()
-            if row_date != trade_date:
-                wrong_date_rows += 1
-                continue
-            if symbol not in allowed_symbols:
-                outside_universe += 1
+        for symbol in sorted(allowed_symbols):
+            try:
+                frame: Any = fetcher(
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                    symbol,
+                )
+            except Exception:
+                failed_symbols.append(symbol)
                 continue
 
-            open_price = _first_float(item, ("open", "openingprice"))
-            high = _first_float(item, ("high", "highprice"))
-            low = _first_float(item, ("low", "lowprice"))
-            close = _first_float(item, ("close", "closingprice", "ltp"))
-            volume = _first_int(item, ("volume", "totalvolume"))
-            trade = _first_float(item, ("trade", "trades", "totaltrade"))
-            value = _first_float(item, ("value", "turnover", "totalvalue"))
-
-            if None in (open_price, high, low, close, volume):
-                invalid_rows += 1
-                continue
-            assert open_price is not None
-            assert high is not None
-            assert low is not None
-            assert close is not None
-            assert volume is not None
-            if (
-                open_price <= 0
-                or high <= 0
-                or low <= 0
-                or close <= 0
-                or volume < 0
-                or high < low
-                or not (low <= open_price <= high)
-                or not (low <= close <= high)
-            ):
-                invalid_rows += 1
+            if frame is None or bool(getattr(frame, "empty", True)):
+                empty_symbols.append(symbol)
                 continue
 
-            normalized[symbol] = OhlcRow(
-                symbol=symbol,
-                trade_date=trade_date,
-                open=open_price,
-                high=high,
-                low=low,
-                close=close,
-                volume=volume,
-                trade=trade,
-                value=value,
-            )
+            try:
+                raw_records: list[dict[str, Any]] = frame.reset_index().to_dict(
+                    orient="records"
+                )
+            except Exception:
+                failed_symbols.append(symbol)
+                continue
+
+            fetched_rows += len(raw_records)
+            for raw in raw_records:
+                item = {_normalize_key(str(key)): value for key, value in raw.items()}
+                row_symbol = _first_text(
+                    item,
+                    ("symbol", "tradingcode", "code", "instrument"),
+                )
+                normalized_symbol = (row_symbol or symbol).upper()
+                row_date = _first_date(item, ("tradedate", "date", "index"))
+                if row_date is None:
+                    invalid_rows += 1
+                    continue
+                if row_date < start_date or row_date > end_date:
+                    wrong_date_rows += 1
+                    continue
+                if normalized_symbol not in allowed_symbols:
+                    invalid_rows += 1
+                    continue
+
+                open_price = _first_float(item, ("open", "openingprice"))
+                high = _first_float(item, ("high", "highprice"))
+                low = _first_float(item, ("low", "lowprice"))
+                close = _first_float(item, ("close", "closingprice", "ltp"))
+                volume = _first_int(item, ("volume", "totalvolume"))
+                trade = _first_float(item, ("trade", "trades", "totaltrade"))
+                value = _first_float(item, ("value", "turnover", "totalvalue"))
+
+                if None in (open_price, high, low, close, volume):
+                    invalid_rows += 1
+                    continue
+                assert open_price is not None
+                assert high is not None
+                assert low is not None
+                assert close is not None
+                assert volume is not None
+                if (
+                    open_price <= 0
+                    or high <= 0
+                    or low <= 0
+                    or close <= 0
+                    or volume < 0
+                    or high < low
+                    or not (low <= open_price <= high)
+                    or not (low <= close <= high)
+                ):
+                    invalid_rows += 1
+                    continue
+
+                normalized[(normalized_symbol, row_date)] = OhlcRow(
+                    symbol=normalized_symbol,
+                    trade_date=row_date,
+                    open=open_price,
+                    high=high,
+                    low=low,
+                    close=close,
+                    volume=volume,
+                    trade=trade,
+                    value=value,
+                )
 
         if not normalized:
-            raise CollectorSourceError("DSE source returned no valid rows inside the approved OHLC universe.")
+            detail = ""
+            if failed_symbols:
+                detail = f" {len(failed_symbols)} symbol requests failed."
+            raise CollectorSourceError(
+                "DSE source returned no valid rows inside the approved OHLC universe."
+                + detail
+            )
 
-        missing = sorted(allowed_symbols - set(normalized))
+        target_date_symbols = {
+            row.symbol for row in normalized.values() if row.trade_date == end_date
+        }
+        missing = sorted(allowed_symbols - target_date_symbols)
         warnings: list[str] = []
         if invalid_rows:
-            warnings.append(f"{invalid_rows} source rows failed OHLC validation and were not saved.")
-        if outside_universe:
-            warnings.append(f"{outside_universe} non-universe instruments were ignored.")
+            warnings.append(
+                f"{invalid_rows} source rows failed OHLC validation and were not saved."
+            )
+        if failed_symbols:
+            warnings.append(
+                f"{len(failed_symbols)} symbol history requests failed: "
+                + ", ".join(failed_symbols[:20])
+                + (" ..." if len(failed_symbols) > 20 else "")
+            )
+        if empty_symbols:
+            warnings.append(
+                f"{len(empty_symbols)} symbols returned no rows in the requested date range."
+            )
         if wrong_date_rows:
-            warnings.append(f"{wrong_date_rows} rows outside the requested trade date were ignored.")
+            warnings.append(
+                f"{wrong_date_rows} rows outside the requested date range were ignored."
+            )
         if missing:
-            warnings.append(f"{len(missing)} approved symbols were absent from the source response.")
+            warnings.append(
+                f"{len(missing)} approved symbols were absent on {end_date.isoformat()}."
+            )
 
         return CollectorBatch(
             rows=list(normalized.values()),
-            fetched_rows=len(raw_records),
+            fetched_rows=fetched_rows,
             invalid_rows=invalid_rows,
             missing_symbols=missing,
             warnings=warnings,
