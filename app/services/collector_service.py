@@ -10,7 +10,6 @@ from app.core.config import Settings
 from app.repositories.collector_repository import CollectorRepository
 from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.schemas.collector import CollectorRunResponse
-from app.schemas.ohlc import OhlcRow
 from app.services.collector_source import CollectorSource, CollectorSourceError
 from app.services.data_audit_service import DataAuditService
 
@@ -63,13 +62,17 @@ class CollectorService:
 
     def start(self, requested_trade_date: date | None) -> CollectorRunResponse:
         if not self._repository.is_available():
-            raise CollectorUnavailableError("Collector table is unavailable. Run POST /db/init after deployment.")
+            raise CollectorUnavailableError(
+                "Collector table is unavailable. Run POST /db/init after deployment."
+            )
         if not self._ohlc_repository.is_available():
             raise CollectorUnavailableError("Database OHLC storage is unavailable.")
         self._repository.fail_stale_active()
         active = self._repository.get_active()
         if active is not None:
-            raise CollectorConflictError(f"Collector job {active.job_id} is already {active.status}.")
+            raise CollectorConflictError(
+                f"Collector job {active.job_id} is already {active.status}."
+            )
 
         trade_date = requested_trade_date or self._default_trade_date()
         if trade_date > datetime.now(ZoneInfo("Asia/Dhaka")).date():
@@ -92,49 +95,48 @@ class CollectorService:
             if not allowed_symbols:
                 raise CollectorUnavailableError("Approved OHLC universe is empty.")
 
-            collection_dates = self._collection_dates(job.requested_trade_date, collect_missing)
-            all_rows: list[OhlcRow] = []
-            fetched_rows = 0
-            invalid_rows = 0
-            latest_missing_symbols: list[str] = []
-            warnings: list[str] = []
-            successful_dates: list[date] = []
-
-            for collection_date in collection_dates:
-                try:
-                    batch = self._source.collect(collection_date, allowed_symbols)
-                except CollectorSourceError as exc:
-                    warnings.append(f"{collection_date.isoformat()}: {exc}")
-                    continue
-                all_rows.extend(batch.rows)
-                fetched_rows += batch.fetched_rows
-                invalid_rows += batch.invalid_rows
-                latest_missing_symbols = batch.missing_symbols
-                warnings.extend(f"{collection_date.isoformat()}: {warning}" for warning in batch.warnings)
-                successful_dates.append(collection_date)
-
+            collection_dates = self._collection_dates(
+                job.requested_trade_date,
+                collect_missing,
+            )
+            requested_dates = set(collection_dates)
+            batch = self._source.collect_range(
+                collection_dates[0],
+                collection_dates[-1],
+                allowed_symbols,
+            )
+            all_rows = [row for row in batch.rows if row.trade_date in requested_dates]
             if not all_rows:
-                raise CollectorSourceError("No requested trading date produced valid DSE rows.")
+                raise CollectorSourceError(
+                    "No requested trading date produced valid DSE rows."
+                )
 
             inserted, updated = self._ohlc_repository.upsert(all_rows)
             if inserted + updated == 0:
-                raise CollectorUnavailableError("Collector rows could not be upserted into database storage.")
+                raise CollectorUnavailableError(
+                    "Collector rows could not be upserted into database storage."
+                )
 
+            successful_dates = sorted({row.trade_date for row in all_rows})
+            warnings = list(batch.warnings)
             warnings.insert(
                 0,
-                f"Collected {len(successful_dates)} of {len(collection_dates)} trading-day candidates.",
+                f"Collected {len(successful_dates)} of "
+                f"{len(collection_dates)} trading-day candidates.",
             )
             audit = self._audit_service.audit()
             if not audit.scanner_ready:
-                warnings.append("Post-collection OHLC audit is not scanner-ready; review /data/audit.")
+                warnings.append(
+                    "Post-collection OHLC audit is not scanner-ready; review /data/audit."
+                )
             self._repository.mark_completed(
                 job_id,
-                fetched_rows=fetched_rows,
+                fetched_rows=batch.fetched_rows,
                 collected_symbols=len({row.symbol for row in all_rows}),
                 inserted_rows=inserted,
                 updated_rows=updated,
-                invalid_rows=invalid_rows,
-                missing_symbols=latest_missing_symbols,
+                invalid_rows=batch.invalid_rows,
+                missing_symbols=batch.missing_symbols,
                 warnings=warnings,
             )
         except CollectorSourceError as exc:
