@@ -13,7 +13,7 @@ class BackendStatusResponse(BaseModel):
 
     status: Literal["ok"]
     mode: str
-    data_source: Literal["demo"]
+    data_source: Literal["demo", "local_csv"]
     backend_ready: bool
     database_connected: bool
     live_market_connected: bool
