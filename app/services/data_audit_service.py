@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -19,7 +19,7 @@ class DataAuditService:
         self._manager = manager
 
     def audit(self) -> DataAuditResponse:
-        audited_at = datetime.now(timezone.utc)
+        audited_at = datetime.now(UTC)
         if not self._manager.has_tables(("ohlc_daily",)):
             return self._empty("Database OHLC table is unavailable.", audited_at)
 
@@ -84,7 +84,9 @@ class DataAuditService:
                 latest_date_symbols = 0
                 if latest is not None:
                     latest_date_symbols = session.scalar(
-                        select(func.count(func.distinct(OhlcDaily.symbol))).where(OhlcDaily.trade_date == latest)
+                        select(func.count(func.distinct(OhlcDaily.symbol))).where(
+                            OhlcDaily.trade_date == latest
+                        )
                     ) or 0
         except (SQLAlchemyError, RuntimeError):
             return self._empty("Database OHLC audit could not be completed.", audited_at)
@@ -105,10 +107,13 @@ class DataAuditService:
         if invalid_ohlc_rows:
             warnings.append(f"{int(invalid_ohlc_rows)} rows violate OHLC range consistency.")
         if insufficient_history:
-            warnings.append(f"{int(insufficient_history)} symbols have fewer than 60 rows and will be scanner-ineligible.")
+            warnings.append(
+                f"{int(insufficient_history)} symbols have fewer than 60 rows and will be scanner-ineligible."
+            )
         if stale_symbols:
             warnings.append(
-                f"{stale_symbols} symbols do not have a row on the dataset latest trade date; review suspensions or data gaps."
+                f"{stale_symbols} symbols do not have a row on the dataset latest trade date; "
+                "review suspensions or data gaps."
             )
         if not warnings and rows:
             warnings.append("No core OHLC integrity issues were detected.")
