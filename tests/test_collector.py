@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
@@ -70,11 +71,7 @@ def _seed_database(client: TestClient) -> None:
     assert response.json()["ok"] is True
 
 
-def test_collector_requires_backend_admin_token(
-    database_client: TestClient,
-    monkeypatch: object,
-) -> None:
-    del monkeypatch
+def test_collector_requires_backend_admin_token(database_client: TestClient) -> None:
     response = database_client.post("/collector/run", json={"trade_date": "2026-07-01"})
 
     assert response.status_code == 503
@@ -83,9 +80,9 @@ def test_collector_requires_backend_admin_token(
 
 def test_collector_rejects_invalid_token(
     database_client: TestClient,
-    monkeypatch: object,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")  # type: ignore[attr-defined]
+    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
@@ -103,10 +100,10 @@ def test_collector_rejects_invalid_token(
 
 def test_collector_runs_in_background_and_upserts_database(
     database_client: TestClient,
-    monkeypatch: object,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed_database(database_client)
-    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")  # type: ignore[attr-defined]
+    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
@@ -139,10 +136,10 @@ def test_collector_runs_in_background_and_upserts_database(
 
 def test_collector_rejects_future_date(
     database_client: TestClient,
-    monkeypatch: object,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed_database(database_client)
-    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")  # type: ignore[attr-defined]
+    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
