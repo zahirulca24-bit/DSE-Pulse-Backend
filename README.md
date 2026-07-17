@@ -1,71 +1,75 @@
 # DSE Pulse Backend
 
-FastAPI backend foundation for the separate DSE Pulse frontend. The service currently supports deterministic demo signals plus local CSV-based DSE OHLC ingestion and read APIs.
+FastAPI backend for the separate DSE Pulse frontend. It supports deterministic demo signals, local DSE OHLC CSV ingestion/read APIs, and a manual scanner derived only from the imported local CSV.
 
 ## Current scope
 
 - Lightweight health and readiness endpoints
-- Deterministic local demo signals
-- Central locked signal grading rules
-- CSV upload preview without saving
-- Normalized local CSV import
+- Deterministic demo fallback signals
+- CSV preview and normalized local import
 - Local data status, symbol list, and OHLC queries
-- Explicit CORS origins for local frontend development and one configurable production origin
-- Automated tests, linting, type checking, and Render configuration
+- Manual deterministic scanner with latest-result persistence
+- Central locked grade rules
+- Explicit CORS configuration
+- Pytest, Ruff, Mypy, GitHub Actions, and Render configuration
 
-This phase does **not** include live DSE scraping, broker connectivity, order execution, real trading, Supabase, authentication, paid data vendors, or AI recommendations. The API does not provide financial advice.
+This project does **not** include live DSE scraping, broker connectivity, order execution, real trading, Supabase, authentication, paid data vendors, or AI recommendations. The API does not provide financial advice.
 
 ## Requirements
 
 - Python 3.11+
 
-## Local setup
+## Setup and run
 
 ```bash
 python -m venv .venv
+python -m pip install -r requirements-dev.txt
 ```
 
 Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 macOS/Linux:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
 cp .env.example .env
-```
-
-## Run locally
-
-```bash
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-OpenAPI documentation is available at `/docs` while the app is running.
+OpenAPI documentation is available at `/docs`.
 
 ## API endpoints
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/health` | Lightweight frontend connection test |
-| GET | `/status` | Backend status plus real local CSV counts when available |
-| GET | `/scanner/status` | Scanner readiness without starting a worker |
-| GET | `/signals` | Deterministic local demo signals |
-| POST | `/data/ohlc/preview` | Validate and preview an uploaded CSV without saving |
-| POST | `/data/ohlc/import` | Validate and save normalized valid rows locally |
-| GET | `/data/status` | Current local CSV availability and derived counts |
-| GET | `/symbols` | Alphabetically sorted symbols from local CSV |
+| GET | `/health` | Lightweight process health |
+| GET | `/status` | Backend and local CSV status |
+| GET | `/scanner/status` | Scanner/data/latest-result readiness |
+| POST | `/scanner/run` | Run the local scanner manually |
+| GET | `/scanner/latest` | Return the latest stored scan |
+| GET | `/scanner/candidates` | Filter latest candidates |
+| GET | `/signals` | Latest qualified/watch scan results or demo fallback |
+| POST | `/data/ohlc/preview` | Validate CSV without saving |
+| POST | `/data/ohlc/import` | Save normalized valid rows locally |
+| GET | `/data/status` | Local CSV availability and counts |
+| GET | `/symbols` | Alphabetically sorted local symbols |
 | GET | `/ohlc/{symbol}` | Local OHLC rows for one symbol |
 
-## Supported CSV schema
+## Local CSV requirement
 
-The upload must contain either:
+The scanner reads only:
+
+```text
+storage/dse_ohlc.csv
+```
+
+Import a CSV before running the scanner. Accepted required headers are:
 
 ```text
 symbol,date,open,high,low,close,volume
@@ -77,87 +81,141 @@ or:
 symbol,trade_date,open,high,low,close,volume
 ```
 
-Optional columns:
-
-```text
-trade,value
-```
-
-Imported files are normalized to:
+Optional columns are `trade` and `value`. Imports are normalized to:
 
 ```text
 symbol,trade_date,open,high,low,close,volume,trade,value
 ```
 
-Validation includes required headers, uppercase symbol normalization, strict `YYYY-MM-DD` dates, numeric OHLC values, integer-compatible volume, non-negative prices, `high >= low`, and numeric optional `trade` and `value` values. Invalid rows are reported and excluded from saved data. Missing data is never invented.
+A successful CSV replacement clears the previous scanner result so `/signals` cannot use a scan derived from the prior imported dataset.
 
-## CSV preview
+## Scanner engine
 
-Upload a multipart file using field name `file`:
+The scanner is manual only. `POST /scanner/run`:
 
-```bash
-curl -X POST http://localhost:8000/data/ohlc/preview \
-  -F "file=@dse_ohlc.csv"
+1. Reads the normalized local CSV.
+2. Groups rows by uppercase symbol.
+3. Sorts each symbol by `trade_date` ascending.
+4. Requires at least 60 rows per eligible symbol.
+5. Uses the latest imported row as the latest closed row.
+6. Calculates indicators with the Python standard library.
+7. Applies transparent deterministic scoring.
+8. Uses the central grade classifier.
+9. Stores at most 50 final candidates in `storage/scanner_latest.json`.
+
+No external site, random value, broker, background worker, or order capability is used.
+
+### Indicators
+
+- SMA 20
+- SMA 50
+- EMA 20
+- EMA 50
+- RSI 14 using Wilder smoothing
+- 20-row average volume
+- Volume ratio
+- 20-row high
+- 20-row low
+- Previous 20-row high for breakout detection
+
+### Setup labels
+
+- `EMA Trend Pullback`
+- `20-Day Breakout`
+- `RSI Momentum Recovery`
+- `SMA Trend Continuation`
+- `Rejected / No Setup`
+
+### Scoring model
+
+The total is capped at 100:
+
+| Component | Maximum |
+|---|---:|
+| Trend alignment | 30 |
+| RSI momentum | 20 |
+| Volume strength | 20 |
+| Deterministic setup | 20 |
+| Display-only range ratio | 10 |
+
+The display-only range ratio is:
+
+```text
+support = 20-row low
+resistance = 20-row high
+risk = latest_close - support
+reward = resistance - latest_close
+ratio = reward / risk
 ```
 
-The preview endpoint returns counts derived from the uploaded file and at most the first 20 valid normalized rows. It does not write to disk.
+Invalid or non-positive ranges produce `0`. This is not a recommendation, position-size calculation, or execution instruction.
 
-## CSV import
+### Locked grades
+
+Grade logic exists only in `app/core/signal_rules.py`:
+
+- A+ = 95–100 → `qualified`
+- A = 90–94 → `qualified`
+- B+ = 85–89 → `watch`
+- Reject = below 85 → `rejected`
+
+### Candidate metadata
+
+The OHLC CSV does not contain company or sector columns. `company` therefore remains `null`. A small local map supplies approved sector names for known symbols; unknown symbols return `sector=null` with a warning instead of inventing metadata.
+
+## Scanner endpoints
+
+Run manually:
 
 ```bash
-curl -X POST http://localhost:8000/data/ohlc/import \
-  -F "file=@dse_ohlc.csv"
+curl -X POST http://localhost:8000/scanner/run
 ```
 
-Only normalized valid rows are saved. An upload containing no valid rows does not overwrite an existing local file.
+Read latest result:
 
-## Local storage
+```bash
+curl http://localhost:8000/scanner/latest
+```
 
-Default path:
+Filter latest candidates:
+
+```bash
+curl "http://localhost:8000/scanner/candidates?grade=A%2B&signal_status=qualified&limit=20"
+```
+
+Supported filters are `grade`, `signal_status`, `sector`, and `limit`. The default limit is 50 and the maximum is 100, although the stored latest candidate set itself is capped at 50.
+
+## `/signals` behavior
+
+- When a valid latest scan exists, `/signals` returns its A+, A, and B+ candidates and labels `data_source` as `local_csv`.
+- Reject candidates remain in `/scanner/latest` but are omitted from `/signals`.
+- When no valid scanner result exists, `/signals` returns the original deterministic demo fallback and labels `data_source` as `demo`.
+- An empty local qualified/watch list remains an empty local result; it does not silently switch to demo data.
+
+## Storage limitations
+
+Default paths:
 
 ```text
 storage/dse_ohlc.csv
+storage/scanner_latest.json
 ```
 
-Configure another path through:
+These paths are configurable through `OHLC_STORAGE_PATH` and `SCANNER_STORAGE_PATH`.
 
-```text
-OHLC_STORAGE_PATH
-```
+Local file storage is not durable production storage. Render free-service filesystems may be ephemeral and files can disappear after restart, redeploy, or instance replacement. Supabase/PostgreSQL persistence and a durable scanner-result repository remain future work.
 
-The storage directory is created automatically. This is local file storage, not database storage, and it is not production-persistent storage.
+## Safety boundaries
 
-**Render warning:** files written to a Render free service filesystem may be ephemeral and can disappear after restart, redeploy, or instance replacement. Supabase or another persistent database integration is still pending.
-
-## OHLC query parameters
-
-`GET /ohlc/{symbol}` supports:
-
-- `limit`: default `100`, maximum `1000`
-- `start_date`: optional `YYYY-MM-DD`
-- `end_date`: optional `YYYY-MM-DD`
-
-Symbols are matched case-insensitively and returned uppercase. Rows are sorted by `trade_date` descending. Unknown symbols return an empty list; fake OHLC rows are never generated.
-
-## Locked signal rules
-
-The rules exist only in `app/core/signal_rules.py`:
-
-- A+ = 95-100 → `qualified`
-- A = 90-94 → `qualified`
-- B+ = 85-89 → `watch`
-- Reject = below 85 → `rejected`
-
-There is no order, execution, or background trading capability.
-
-## CORS
-
-Local development origins are explicitly allowed:
-
-- `http://localhost:3000`
-- `http://localhost:5173`
-
-Set `FRONTEND_ORIGIN` to the deployed frontend origin. Wildcard CORS is not used.
+- No live market connection
+- No DSE website scraping
+- No broker connection
+- No order placement
+- No real trading
+- No background auto-trading worker
+- No authentication in this phase
+- No AI recommendation
+- No financial advice
 
 ## Quality checks
 
@@ -167,17 +225,12 @@ python -m ruff check .
 python -m mypy app
 ```
 
-## Render deployment foundation
-
-`render.yaml` defines a Python 3.11 web service, `/health` health check, production start command, and the default local CSV path. Set `FRONTEND_ORIGIN` in Render before connecting a deployed frontend.
-
-The service can run on Render, but uploaded local CSV files should not be treated as durable storage. Persistent Supabase/database integration remains a future phase.
-
 ## Future integration plan
 
-1. Persistent Supabase/PostgreSQL storage
-2. Scanner engine integration behind the existing API contract
-3. Controlled DSE data ingestion pipeline
-4. Render deployment and runtime verification
+1. Persistent Supabase/PostgreSQL OHLC storage
+2. Persistent scanner result/history repository
+3. Controlled data ingestion pipeline
+4. Scanner performance optimization for larger datasets
+5. Render deployment and runtime verification
 
 Future integrations must preserve the current safety boundaries until separately approved.
