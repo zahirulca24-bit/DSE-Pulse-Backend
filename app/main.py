@@ -1,5 +1,8 @@
 """FastAPI application entry point for DSE Pulse Backend."""
 
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,12 +20,25 @@ from app.api.routes import (
     symbols,
 )
 from app.core.config import get_settings
+from app.services.dependencies import get_market_scanner_scheduler
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    scheduler = get_market_scanner_scheduler()
+    scheduler.start()
+    try:
+        yield
+    finally:
+        await scheduler.stop()
+
 
 settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Google Drive backed DSE data storage, audit, OHLC, and manual scanner API.",
+    description="Google Drive backed DSE data storage, audit, OHLC, and scheduled scanner API.",
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
