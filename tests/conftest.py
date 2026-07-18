@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.db.init_db import initialize_database
 from app.main import app
-from app.services.dependencies import get_database_manager
+from app.services.dependencies import get_database_manager, get_google_drive_client
 
 
 def build_symbol_rows(
@@ -82,25 +82,32 @@ def csv_bytes(rows: list[dict[str, str]]) -> bytes:
 
 @pytest.fixture(autouse=True)
 def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    """Point every test at fresh local files and no database by default."""
+    """Point every test at fresh local files and no database/Drive by default."""
 
     try:
         get_database_manager().dispose()
     finally:
         get_database_manager.cache_clear()
+        get_google_drive_client.cache_clear()
     storage_dir = tmp_path / "storage"
     ohlc_path = storage_dir / "dse_ohlc.csv"
     scanner_path = storage_dir / "scanner_latest.json"
+    collector_path = storage_dir / "collector_jobs.json"
     monkeypatch.setenv("OHLC_STORAGE_PATH", str(ohlc_path))
     monkeypatch.setenv("SCANNER_STORAGE_PATH", str(scanner_path))
+    monkeypatch.setenv("COLLECTOR_STORAGE_PATH", str(collector_path))
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("GOOGLE_DRIVE_FOLDER_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", raising=False)
+    monkeypatch.delenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_B64", raising=False)
     get_settings.cache_clear()
     yield ohlc_path
     try:
         get_database_manager().dispose()
     finally:
         get_database_manager.cache_clear()
+        get_google_drive_client.cache_clear()
         get_settings.cache_clear()
 
 
