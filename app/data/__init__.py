@@ -1,1 +1,1 @@
-"""Deterministic local demo data."""
+"""Static application data package."""
