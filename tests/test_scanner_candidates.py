@@ -58,13 +58,13 @@ def test_fixture_proves_score_alone_cannot_qualify(imported_client: TestClient) 
     assert by_symbol["SQURPHARMA"]["signal_status"] == "qualified"
     assert by_symbol["SQURPHARMA"]["entry_status"] == "READY"
 
-    # GP still earns an A score, but its range-based reward/risk proxy is below 1.5.
+    # ACI earns an A score, but its range-based reward/risk proxy is below 1.5.
     # The hard gate must therefore block READY/qualified status.
-    assert by_symbol["GP"]["grade"] == "A"
-    assert by_symbol["GP"]["qualification_passed"] is False
-    assert by_symbol["GP"]["signal_status"] == "rejected"
-    assert by_symbol["GP"]["entry_status"] == "NOT_READY"
-    assert any("Risk/reward gate failed" in failure for failure in by_symbol["GP"]["qualification_failures"])
+    assert by_symbol["ACI"]["grade"] == "A"
+    assert by_symbol["ACI"]["qualification_passed"] is False
+    assert by_symbol["ACI"]["signal_status"] == "rejected"
+    assert by_symbol["ACI"]["entry_status"] == "NOT_READY"
+    assert any("Risk/reward gate failed" in failure for failure in by_symbol["ACI"]["qualification_failures"])
 
     assert by_symbol["CITYBANK"]["grade"] == "B+"
     assert by_symbol["CITYBANK"]["signal_status"] == "watch"
