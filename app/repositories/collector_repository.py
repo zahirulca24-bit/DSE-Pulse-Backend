@@ -181,7 +181,7 @@ class CollectorRepository:
     def _to_schema(record: CollectorRun) -> CollectorRunResponse:
         return CollectorRunResponse(
             job_id=record.job_id,
-            status=record.status,  # type: ignore[arg-type]
+            status=record.status,
             requested_trade_date=record.requested_trade_date,
             source=record.source,
             fetched_rows=record.fetched_rows,
