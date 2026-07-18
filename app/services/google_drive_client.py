@@ -132,9 +132,7 @@ class GoogleDriveClient:
 
     def _find_file_id(self, filename: str) -> str | None:
         escaped = filename.replace("'", "\\'")
-        query = (
-            f"'{self._folder_id}' in parents and name = '{escaped}' and trashed = false"
-        )
+        query = f"'{self._folder_id}' in parents and name = '{escaped}' and trashed = false"
         result = (
             self._get_service()
             .files()
@@ -143,6 +141,8 @@ class GoogleDriveClient:
                 spaces="drive",
                 fields="files(id,name)",
                 pageSize=10,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             .execute()
         )
