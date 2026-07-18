@@ -33,7 +33,7 @@ class ScannerService:
                 last_scan_at=None,
                 qualified_rule="A+ and A only",
                 watch_rule="B+ watch only",
-                execution_enabled=self._scanner_engine is not None,
+                execution_enabled=False,
             )
 
         latest = self._scanner_repository.load()
@@ -46,7 +46,7 @@ class ScannerService:
             last_scan_at=None if latest is None else latest.generated_at,
             qualified_rule="A+ and A only",
             watch_rule="B+ watch only",
-            execution_enabled=self._scanner_engine is not None,
+            execution_enabled=False,
         )
 
     def run(self) -> ScannerResultResponse:
