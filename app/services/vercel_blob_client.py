@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from vercel.blob import BlobClient, list_objects
 from vercel.blob.errors import BlobError, BlobNotFoundError
@@ -21,7 +20,7 @@ class VercelBlobClient:
 
     def __init__(self, token: str = "") -> None:
         self._token = token.strip()
-        self._client = BlobClient()
+        self._client = BlobClient(token=self._token or None)
 
     @property
     def configured(self) -> bool:
@@ -52,18 +51,14 @@ class VercelBlobClient:
         if not self.configured:
             return None
         try:
-            result = self._client.get(pathname, access="private", token=self._token)
+            result = self._client.get(pathname, access="private")
         except BlobNotFoundError:
             return None
         except BlobError as exc:
             raise RuntimeError("Vercel Blob master file could not be downloaded.") from exc
-        if result is None or result.status_code != 200 or result.stream is None:
+        if result.status_code != 200:
             return None
-        stream: Any = result.stream
-        if hasattr(stream, "read"):
-            data = stream.read()
-            return bytes(data)
-        return b"".join(stream)
+        return result.content
 
     def upload_or_replace(self, pathname: str, content: bytes, content_type: str) -> str:
         if not self.configured:
@@ -77,7 +72,6 @@ class VercelBlobClient:
                 add_random_suffix=False,
                 overwrite=True,
                 cache_control_max_age=60,
-                token=self._token,
             )
         except BlobError as exc:
             raise RuntimeError("Vercel Blob master file could not be saved.") from exc
