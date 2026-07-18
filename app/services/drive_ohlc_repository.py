@@ -39,8 +39,11 @@ class DriveOhlcRepository(OhlcRepository):
         return self._drive_client.status()
 
     def sync_from_drive(self, force: bool = False) -> bool:
-        """Download the canonical Drive master into the local cache when available."""
+        """Download the canonical Drive master into the local cache when needed."""
 
+        if not force and self.storage_path.is_file():
+            self._sync_attempted = True
+            return True
         if self._sync_attempted and not force:
             return self.storage_path.is_file()
         self._sync_attempted = True
