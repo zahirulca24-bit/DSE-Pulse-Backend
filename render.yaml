@@ -25,11 +25,7 @@ services:
         value: true
       - key: DSE_MARKET_HOLIDAYS
         sync: false
-      - key: GOOGLE_DRIVE_FOLDER_ID
-        value: 1juyZSKZACHQfb9KE1Qd0lcQFHNLT_K6F
-      - key: GOOGLE_DRIVE_MASTER_FILENAME
-        value: DSE_OHLC_MASTER.csv
-      - key: GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_B64
-        sync: false
+      - key: VERCEL_BLOB_MASTER_PATHNAME
+        value: dse/DSE_OHLC_MASTER.csv
       - key: FRONTEND_ORIGIN
         sync: false

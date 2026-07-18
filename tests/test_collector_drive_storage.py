@@ -1,4 +1,4 @@
-"""Regression tests for the database-free Google Drive collector path."""
+"""Regression tests for the database-free Vercel Blob collector path."""
 
 from datetime import date
 from pathlib import Path
@@ -13,30 +13,30 @@ from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_service import CollectorService, CollectorUnavailableError
 from app.services.collector_source import CollectorBatch
 from app.services.csv_ingestion_service import CsvParseResult
-from app.services.google_drive_client import GoogleDriveStatus
+from app.services.vercel_blob_client import VercelBlobStatus
 
 
-class FakeDriveRepository:
+class FakeBlobRepository:
     def __init__(self, connected: bool = True) -> None:
         self.connected = connected
         self.synced = False
         self.merged_rows: list[OhlcRow] = []
 
-    def drive_status(self) -> GoogleDriveStatus:
-        return GoogleDriveStatus(
+    def blob_status(self) -> VercelBlobStatus:
+        return VercelBlobStatus(
             configured=self.connected,
             connected=self.connected,
-            message="Drive ready." if self.connected else "Drive unavailable.",
+            message="Blob ready." if self.connected else "Blob unavailable.",
         )
 
-    def sync_from_drive(self, force: bool = False) -> bool:
+    def sync_from_blob(self, force: bool = False) -> bool:
         self.synced = force
         return self.connected
 
     def get_status(self) -> SimpleNamespace:
         return SimpleNamespace(latest_trade_date=date(2026, 7, 15))
 
-    def merge_and_save_to_drive(
+    def merge_and_save_to_blob(
         self,
         parsed: CsvParseResult,
     ) -> tuple[int, int, CsvParseResult]:
@@ -79,22 +79,22 @@ class FakeCollectorSource:
 
 def _service(
     tmp_path: Path,
-    drive: FakeDriveRepository,
+    blob: FakeBlobRepository,
 ) -> tuple[CollectorService, CollectorJobRepository, FakeCollectorSource]:
     repository = CollectorJobRepository(tmp_path / "collector_jobs.json")
     source = FakeCollectorSource()
     service = CollectorService(
         settings=Settings(collector_admin_token="secret"),
         repository=repository,
-        ohlc_repository=drive,  # type: ignore[arg-type]
+        ohlc_repository=blob,  # type: ignore[arg-type]
         source=source,
     )
     return service, repository, source
 
 
-def test_collector_merges_daily_rows_into_drive_without_database(tmp_path: Path) -> None:
-    drive = FakeDriveRepository()
-    service, _repository, source = _service(tmp_path, drive)
+def test_collector_merges_daily_rows_into_blob_without_database(tmp_path: Path) -> None:
+    blob = FakeBlobRepository()
+    service, _repository, source = _service(tmp_path, blob)
 
     service.authorize("secret")
     job = service.start(date(2026, 7, 16))
@@ -106,16 +106,16 @@ def test_collector_merges_daily_rows_into_drive_without_database(tmp_path: Path)
     assert completed.inserted_rows == 1
     assert completed.updated_rows == 0
     assert completed.scanner_refresh_required is True
-    assert any("Google Drive master updated" in item for item in completed.warnings)
-    assert drive.synced is True
-    assert [row.symbol for row in drive.merged_rows] == ["ACI"]
+    assert any("Vercel Blob master updated" in item for item in completed.warnings)
+    assert blob.synced is True
+    assert [row.symbol for row in blob.merged_rows] == ["ACI"]
     assert source.allowed_symbols == set(PHASE1_SYMBOLS)
 
 
-def test_collector_fails_closed_when_drive_is_unavailable(tmp_path: Path) -> None:
-    service, _repository, _source = _service(tmp_path, FakeDriveRepository(connected=False))
+def test_collector_fails_closed_when_blob_is_unavailable(tmp_path: Path) -> None:
+    service, _repository, _source = _service(tmp_path, FakeBlobRepository(connected=False))
 
-    with pytest.raises(CollectorUnavailableError, match="Google Drive OHLC storage is unavailable"):
+    with pytest.raises(CollectorUnavailableError, match="Vercel Blob OHLC storage is unavailable"):
         service.start(date(2026, 7, 16))
 
 
