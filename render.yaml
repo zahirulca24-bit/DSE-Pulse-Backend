@@ -19,6 +19,12 @@ services:
         value: storage/dse_ohlc.csv
       - key: SCANNER_STORAGE_PATH
         value: storage/scanner_latest.json
+      - key: SCANNER_SCHEDULER_STATE_PATH
+        value: storage/scanner_scheduler_state.json
+      - key: SCANNER_SCHEDULER_ENABLED
+        value: true
+      - key: DSE_MARKET_HOLIDAYS
+        sync: false
       - key: GOOGLE_DRIVE_FOLDER_ID
         value: 1juyZSKZACHQfb9KE1Qd0lcQFHNLT_K6F
       - key: GOOGLE_DRIVE_MASTER_FILENAME
