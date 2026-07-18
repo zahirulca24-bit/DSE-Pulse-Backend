@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from app.services.csv_ingestion_service import CsvIngestionService
 from app.services.drive_ohlc_repository import DriveOhlcRepository
