@@ -21,7 +21,7 @@ def test_symbols_and_status_fall_back_to_local(imported_client: TestClient) -> N
 
 
 def test_ohlc_explicit_local_source(imported_client: TestClient) -> None:
-    payload = imported_client.get("/ohlc/gp", params={"source": "local_csv", "limit": 2}).json()
+    payload = imported_client.get("/ohlc/aci", params={"source": "local_csv", "limit": 2}).json()
     assert payload["data_source"] == "local_csv"
     assert payload["rows_count"] == 2
 

@@ -113,7 +113,7 @@ def client() -> TestClient:
 
 @pytest.fixture
 def scanner_csv() -> bytes:
-    """Return deterministic data producing all four locked grade outcomes."""
+    """Return deterministic Phase-1 data producing all four locked grade outcomes."""
 
     rows: list[dict[str, str]] = []
     rows += build_symbol_rows(
@@ -123,7 +123,7 @@ def scanner_csv() -> bytes:
         final_high_gap=8.0,
     )
     rows += build_symbol_rows(
-        "GP",
+        "ACI",
         drift=0.1,
         final_volume_multiplier=1.7,
         final_high_gap=4.0,
