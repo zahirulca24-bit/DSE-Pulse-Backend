@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.discovery import build  # type: ignore[import-untyped]
+from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload  # type: ignore[import-untyped]
 
 _DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 
@@ -153,7 +153,10 @@ class GoogleDriveClient:
         if self._service is not None:
             return self._service
         info = self._credential_info()
-        credentials = Credentials.from_service_account_info(info, scopes=[_DRIVE_SCOPE])
+        credentials = Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
+            info,
+            scopes=[_DRIVE_SCOPE],
+        )
         self._service = build("drive", "v3", credentials=credentials, cache_discovery=False)
         return self._service
 
