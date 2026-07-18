@@ -63,7 +63,7 @@ class GoogleDriveClient:
                 )
                 .execute()
             )
-        except (HttpError, ValueError, json.JSONDecodeError):
+        except (HttpError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return GoogleDriveStatus(
                 configured=True,
                 connected=False,
@@ -83,28 +83,43 @@ class GoogleDriveClient:
         )
 
     def download_by_name(self, filename: str) -> bytes | None:
-        file_id = self._find_file_id(filename)
-        if file_id is None:
-            return None
-        request = self._get_service().files().get_media(fileId=file_id)
-        buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(buffer, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        return buffer.getvalue()
+        try:
+            file_id = self._find_file_id(filename)
+            if file_id is None:
+                return None
+            request = self._get_service().files().get_media(fileId=file_id)
+            buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(buffer, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            return buffer.getvalue()
+        except HttpError as exc:
+            raise RuntimeError("Google Drive master file could not be downloaded.") from exc
 
     def upload_or_replace(self, filename: str, content: bytes, mime_type: str) -> str:
         if not self.configured:
             raise RuntimeError("Google Drive storage is not configured.")
-        service = self._get_service()
-        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
-        existing_id = self._find_file_id(filename)
-        if existing_id:
+        try:
+            service = self._get_service()
+            media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
+            existing_id = self._find_file_id(filename)
+            if existing_id:
+                result = (
+                    service.files()
+                    .update(
+                        fileId=existing_id,
+                        media_body=media,
+                        fields="id",
+                        supportsAllDrives=True,
+                    )
+                    .execute()
+                )
+                return str(result["id"])
             result = (
                 service.files()
-                .update(
-                    fileId=existing_id,
+                .create(
+                    body={"name": filename, "parents": [self._folder_id]},
                     media_body=media,
                     fields="id",
                     supportsAllDrives=True,
@@ -112,17 +127,8 @@ class GoogleDriveClient:
                 .execute()
             )
             return str(result["id"])
-        result = (
-            service.files()
-            .create(
-                body={"name": filename, "parents": [self._folder_id]},
-                media_body=media,
-                fields="id",
-                supportsAllDrives=True,
-            )
-            .execute()
-        )
-        return str(result["id"])
+        except (HttpError, KeyError) as exc:
+            raise RuntimeError("Google Drive master file could not be saved.") from exc
 
     def _find_file_id(self, filename: str) -> str | None:
         escaped = filename.replace("'", "\\'")
@@ -137,8 +143,6 @@ class GoogleDriveClient:
                 spaces="drive",
                 fields="files(id,name)",
                 pageSize=10,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
             )
             .execute()
         )
