@@ -1,5 +1,6 @@
 """CSV preview/import and active data source routes."""
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
@@ -228,7 +229,7 @@ def _drive_import_error(
     *,
     invalid_rows: int = 0,
     symbols_count: int = 0,
-    latest_trade_date=None,
+    latest_trade_date: date | None = None,
 ) -> DriveImportResponse:
     return DriveImportResponse(
         ok=False,
