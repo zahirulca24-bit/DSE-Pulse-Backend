@@ -1,4 +1,4 @@
-"""Protected collector endpoint tests for the Google Drive production path."""
+"""Protected collector endpoint tests for the Vercel Blob production path."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from app.services.collector_service import CollectorService
 from app.services.collector_source import CollectorBatch
 from app.services.csv_ingestion_service import CsvParseResult
 from app.services.dependencies import get_collector_service
-from app.services.google_drive_client import GoogleDriveStatus
+from app.services.vercel_blob_client import VercelBlobStatus
 
 
 class FakeCollectorSource:
@@ -51,23 +51,23 @@ class FakeCollectorSource:
         )
 
 
-class FakeDriveRepository:
-    """Minimal connected Drive repository used by endpoint tests."""
+class FakeBlobRepository:
+    """Minimal connected Blob repository used by endpoint tests."""
 
-    def drive_status(self) -> GoogleDriveStatus:
-        return GoogleDriveStatus(
+    def blob_status(self) -> VercelBlobStatus:
+        return VercelBlobStatus(
             configured=True,
             connected=True,
-            message="Drive ready.",
+            message="Blob ready.",
         )
 
-    def sync_from_drive(self, force: bool = False) -> bool:
+    def sync_from_blob(self, force: bool = False) -> bool:
         return force
 
     def get_status(self) -> object:
         return type("Status", (), {"latest_trade_date": date(2026, 6, 30)})()
 
-    def merge_and_save_to_drive(
+    def merge_and_save_to_blob(
         self,
         parsed: CsvParseResult,
     ) -> tuple[int, int, CsvParseResult]:
@@ -79,7 +79,7 @@ def _collector_service() -> CollectorService:
     return CollectorService(
         settings=settings,
         repository=CollectorJobRepository(settings.collector_storage_path),
-        ohlc_repository=FakeDriveRepository(),  # type: ignore[arg-type]
+        ohlc_repository=FakeBlobRepository(),  # type: ignore[arg-type]
         source=FakeCollectorSource(),
     )
 
@@ -111,7 +111,7 @@ def test_collector_rejects_invalid_token(
     assert response.status_code == 403
 
 
-def test_collector_runs_in_background_and_updates_drive_master(
+def test_collector_runs_in_background_and_updates_blob_master(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -141,7 +141,7 @@ def test_collector_runs_in_background_and_updates_drive_master(
     assert payload["inserted_rows"] == 1
     assert payload["updated_rows"] == 0
     assert payload["scanner_refresh_required"] is True
-    assert any("Google Drive master updated" in item for item in payload["warnings"])
+    assert any("Vercel Blob master updated" in item for item in payload["warnings"])
     assert history.status_code == 200
     assert history.json()["count"] == 1
 
