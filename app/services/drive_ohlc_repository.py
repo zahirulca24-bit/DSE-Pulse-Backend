@@ -67,7 +67,7 @@ class DriveOhlcRepository(OhlcRepository):
         status = self._drive_client.status()
         if not status.connected:
             raise RuntimeError(status.message)
-        self.sync_from_drive()
+        self.sync_from_drive(force=True)
         existing = super().read_result()
         existing_rows = [] if existing is None or not existing.ok else existing.valid_rows
         existing_by_key = {
