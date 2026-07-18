@@ -1,5 +1,6 @@
 """Environment-backed application configuration."""
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -18,7 +19,10 @@ class Settings(BaseSettings):
     collector_admin_token: str = ""
     ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
     scanner_storage_path: Path = Path("storage/scanner_latest.json")
+    scanner_scheduler_state_path: Path = Path("storage/scanner_scheduler_state.json")
     collector_storage_path: Path = Path("storage/collector_jobs.json")
+    scanner_scheduler_enabled: bool = False
+    dse_market_holidays: str = ""
     google_drive_folder_id: str = ""
     google_drive_master_filename: str = "DSE_OHLC_MASTER.csv"
     google_drive_service_account_json: str = ""
@@ -45,6 +49,21 @@ class Settings(BaseSettings):
             or self.google_drive_service_account_json_b64.strip()
         )
         return bool(self.google_drive_folder_id.strip() and credentials)
+
+    @property
+    def dse_market_holiday_dates(self) -> set[date]:
+        """Parse optional comma-separated YYYY-MM-DD exchange holidays fail-closed."""
+
+        holidays: set[date] = set()
+        for value in self.dse_market_holidays.split(","):
+            item = value.strip()
+            if not item:
+                continue
+            try:
+                holidays.add(date.fromisoformat(item))
+            except ValueError:
+                continue
+        return holidays
 
     @property
     def cors_origins(self) -> list[str]:
