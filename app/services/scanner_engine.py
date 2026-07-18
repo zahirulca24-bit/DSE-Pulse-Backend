@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from app.core.qualification_rules import evaluate_qualification
 from app.core.signal_rules import SignalStatus, classify_score
 from app.data.symbol_metadata import SYMBOL_SECTORS
 from app.schemas.ohlc import OhlcRow
@@ -45,7 +46,7 @@ class ScannerEngine:
             selected[-1] = highest_reject
             selected.sort(key=self._sort_key)
         skipped_symbols = len(grouped) - eligible_symbols
-        message = "Local CSV scan completed."
+        message = "Local CSV scan completed with strict qualification gates."
         if skipped_symbols:
             message += f" {skipped_symbols} symbol(s) skipped because fewer than {_MINIMUM_ROWS} rows were available."
         if eligible_symbols == 0:
@@ -71,11 +72,28 @@ class ScannerEngine:
         setup = self._setup(latest.close, indicators, trend)
         risk_reward = self._risk_reward(latest.close, indicators.low20, indicators.high20)
         score, reasons = self._score(latest.close, latest.volume, indicators, setup, risk_reward)
-        grade, signal_status = classify_score(score)
+        grade, _raw_status = classify_score(score)
+        decision = evaluate_qualification(
+            grade=grade,
+            trend=trend,
+            setup=setup,
+            close=latest.close,
+            ema20=indicators.ema20,
+            sma20=indicators.sma20,
+            prior_high20=indicators.prior_high20,
+            volume_ratio=indicators.volume_ratio,
+            risk_reward=risk_reward,
+            latest_volume=latest.volume,
+        )
+        signal_status = decision.status
         warnings: list[str] = []
         sector = SYMBOL_SECTORS.get(symbol)
         if sector is None:
             warnings.append("Sector metadata is unavailable for this symbol.")
+        if decision.passed:
+            reasons.append("Strict qualification gate passed.")
+        else:
+            warnings.extend(decision.failures)
         return ScannerCandidate(
             symbol=symbol,
             sector=sector,
@@ -94,6 +112,13 @@ class ScannerEngine:
             rsi14=round(indicators.rsi14, 2),
             volume_ratio=round(indicators.volume_ratio, 2),
             risk_reward=round(risk_reward, 2),
+            qualification_passed=decision.passed,
+            qualification_failures=list(decision.failures),
+            entry_distance_percent=(
+                None
+                if decision.entry_distance_ratio is None
+                else round(decision.entry_distance_ratio * 100, 2)
+            ),
             reasons=reasons,
             warnings=warnings,
             data_mode="Database" if source == "database" else "Local CSV",
@@ -171,10 +196,10 @@ class ScannerEngine:
             reasons.append(f"Deterministic setup: {setup}.")
         if risk_reward >= 2:
             score += 10
-            reasons.append("Display-only range ratio is at least 2.0.")
+            reasons.append("Range-based reward/risk ratio is at least 2.0.")
         elif risk_reward >= 1:
             score += 6
-            reasons.append("Display-only range ratio is at least 1.0.")
+            reasons.append("Range-based reward/risk ratio is at least 1.0.")
         elif risk_reward > 0:
             score += 3
         if volume == 0:
