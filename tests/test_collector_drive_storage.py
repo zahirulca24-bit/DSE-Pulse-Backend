@@ -12,6 +12,7 @@ from app.schemas.ohlc import OhlcRow
 from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_service import CollectorService, CollectorUnavailableError
 from app.services.collector_source import CollectorBatch
+from app.services.csv_ingestion_service import CsvParseResult
 from app.services.google_drive_client import GoogleDriveStatus
 
 
@@ -35,10 +36,12 @@ class FakeDriveRepository:
     def get_status(self) -> SimpleNamespace:
         return SimpleNamespace(latest_trade_date=date(2026, 7, 15))
 
-    def merge_and_save_to_drive(self, parsed: object) -> tuple[int, int, object]:
-        valid_rows = list(getattr(parsed, "valid_rows"))
-        self.merged_rows = valid_rows
-        return len(valid_rows), 0, parsed
+    def merge_and_save_to_drive(
+        self,
+        parsed: CsvParseResult,
+    ) -> tuple[int, int, CsvParseResult]:
+        self.merged_rows = list(parsed.valid_rows)
+        return len(parsed.valid_rows), 0, parsed
 
 
 class FakeCollectorSource:
@@ -74,7 +77,10 @@ class FakeCollectorSource:
         )
 
 
-def _service(tmp_path: Path, drive: FakeDriveRepository) -> tuple[CollectorService, CollectorJobRepository, FakeCollectorSource]:
+def _service(
+    tmp_path: Path,
+    drive: FakeDriveRepository,
+) -> tuple[CollectorService, CollectorJobRepository, FakeCollectorSource]:
     repository = CollectorJobRepository(tmp_path / "collector_jobs.json")
     source = FakeCollectorSource()
     service = CollectorService(
