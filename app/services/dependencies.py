@@ -17,6 +17,9 @@ from app.services.indicator_service import IndicatorService
 from app.services.ohlc_repository import OhlcRepository
 from app.services.scanner_engine import ScannerEngine
 from app.services.scanner_repository import ScannerRepository
+from app.services.scanner_scheduler import MarketScannerScheduler
+from app.services.scanner_scheduler_state import ScannerSchedulerStateRepository
+from app.services.scanner_service import ScannerService
 
 
 @lru_cache
@@ -102,3 +105,25 @@ def get_collector_service() -> CollectorService:
 
 def get_scanner_engine() -> ScannerEngine:
     return ScannerEngine(IndicatorService())
+
+
+def get_scanner_service() -> ScannerService:
+    """Build the single scanner execution path used by manual and scheduled scans."""
+
+    return ScannerService(
+        get_ohlc_repository(),
+        get_scanner_repository(),
+        get_scanner_engine(),
+    )
+
+
+@lru_cache
+def get_market_scanner_scheduler() -> MarketScannerScheduler:
+    """Return the process-wide market scheduler and persistent slot state."""
+
+    settings = get_settings()
+    return MarketScannerScheduler(
+        settings=settings,
+        scanner_service=get_scanner_service(),
+        state_repository=ScannerSchedulerStateRepository(settings.scanner_scheduler_state_path),
+    )
