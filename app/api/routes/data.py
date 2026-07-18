@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.db.database import DatabaseManager
 from app.repositories.ohlc_db_repository import OhlcDbRepository
+from app.schemas.blob import BlobImportResponse
 from app.schemas.data import (
     DataAuditResponse,
     DataImportResponse,
@@ -15,19 +16,18 @@ from app.schemas.data import (
     StaleSymbolsResponse,
 )
 from app.schemas.database import DatabaseImportResponse, DataSourceResponse
-from app.schemas.drive import DriveImportResponse
+from app.services.blob_ohlc_repository import BlobOhlcRepository
 from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvIngestionService
 from app.services.data_audit_service import DataAuditService
 from app.services.dependencies import (
+    get_blob_ohlc_repository,
     get_csv_ingestion_service,
     get_data_audit_service,
     get_database_manager,
-    get_drive_ohlc_repository,
     get_ohlc_db_repository,
     get_ohlc_repository,
     get_scanner_repository,
 )
-from app.services.drive_ohlc_repository import DriveOhlcRepository
 from app.services.ohlc_repository import OhlcRepository
 from app.services.scanner_repository import ScannerRepository
 
@@ -87,38 +87,38 @@ async def import_ohlc_csv(
         invalid_rows=result.invalid_rows,
         symbols_count=result.symbols_count,
         latest_trade_date=result.latest_trade_date,
-        message="DSE OHLC CSV imported into local storage.",
+        message="DSE OHLC CSV imported into active storage cache.",
         warnings=result.warnings,
         errors=result.errors,
     )
 
 
-@router.post("/ohlc/import-drive", response_model=DriveImportResponse)
-async def import_ohlc_google_drive(
+@router.post("/ohlc/import-blob", response_model=BlobImportResponse)
+async def import_ohlc_vercel_blob(
     file: Annotated[UploadFile, File()],
     ingestion_service: Annotated[CsvIngestionService, Depends(get_csv_ingestion_service)],
-    repository: Annotated[DriveOhlcRepository, Depends(get_drive_ohlc_repository)],
+    repository: Annotated[BlobOhlcRepository, Depends(get_blob_ohlc_repository)],
     scanner_repository: Annotated[ScannerRepository, Depends(get_scanner_repository)],
-) -> DriveImportResponse:
-    """Validate and upsert OHLC rows into the canonical Google Drive master CSV."""
+) -> BlobImportResponse:
+    """Validate and upsert OHLC rows into the canonical Vercel Blob master CSV."""
 
     result = ingestion_service.parse_bytes(await file.read(), file.filename or "uploaded.csv")
     if not result.ok:
-        return _drive_import_error(
+        return _blob_import_error(
             repository,
-            "DSE OHLC CSV did not pass validation and was not saved to Google Drive.",
+            "DSE OHLC CSV did not pass validation and was not saved to Vercel Blob.",
             invalid_rows=result.invalid_rows,
             symbols_count=result.symbols_count,
             latest_trade_date=result.latest_trade_date,
         )
     try:
-        inserted, updated, merged = repository.merge_and_save_to_drive(result)
+        inserted, updated, merged = repository.merge_and_save_to_blob(result)
     except RuntimeError as exc:
-        return _drive_import_error(repository, str(exc), invalid_rows=result.invalid_rows)
+        return _blob_import_error(repository, str(exc), invalid_rows=result.invalid_rows)
     scanner_repository.clear()
-    return DriveImportResponse(
+    return BlobImportResponse(
         ok=True,
-        data_source="google_drive",
+        data_source="vercel_blob",
         inserted_rows=inserted,
         updated_rows=updated,
         invalid_rows=result.invalid_rows,
@@ -126,8 +126,8 @@ async def import_ohlc_google_drive(
         rows_count=len(merged.valid_rows),
         earliest_trade_date=merged.earliest_trade_date,
         latest_trade_date=merged.latest_trade_date,
-        master_filename=repository.master_filename,
-        message="DSE OHLC master data saved to Google Drive and local cache refreshed.",
+        master_pathname=repository.master_pathname,
+        message="DSE OHLC master data saved to Vercel Blob and local cache refreshed.",
     )
 
 
@@ -194,7 +194,7 @@ def get_stale_symbols(
 
 @router.get("/status", response_model=DataStatusResponse)
 def get_data_status(repository: Annotated[OhlcRepository, Depends(get_ohlc_repository)]) -> DataStatusResponse:
-    """Return status for the active local cache, which is Drive-backed when configured."""
+    """Return status for the active local cache, Blob-backed when configured."""
 
     return repository.get_status()
 
@@ -223,17 +223,17 @@ def get_data_source(
     )
 
 
-def _drive_import_error(
-    repository: DriveOhlcRepository,
+def _blob_import_error(
+    repository: BlobOhlcRepository,
     message: str,
     *,
     invalid_rows: int = 0,
     symbols_count: int = 0,
     latest_trade_date: date | None = None,
-) -> DriveImportResponse:
-    return DriveImportResponse(
+) -> BlobImportResponse:
+    return BlobImportResponse(
         ok=False,
-        data_source="google_drive",
+        data_source="vercel_blob",
         inserted_rows=0,
         updated_rows=0,
         invalid_rows=invalid_rows,
@@ -241,7 +241,7 @@ def _drive_import_error(
         rows_count=0,
         earliest_trade_date=None,
         latest_trade_date=latest_trade_date,
-        master_filename=repository.master_filename,
+        master_pathname=repository.master_pathname,
         message=message,
     )
 
