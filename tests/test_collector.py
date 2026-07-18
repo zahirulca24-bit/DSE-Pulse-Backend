@@ -1,26 +1,25 @@
-"""Protected collector endpoint and database upsert tests."""
+"""Protected collector endpoint tests for the Google Drive production path."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.main import app
-from app.repositories.collector_repository import CollectorRepository
-from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.schemas.ohlc import OhlcRow
+from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_service import CollectorService
 from app.services.collector_source import CollectorBatch
-from app.services.data_audit_service import DataAuditService
-from app.services.dependencies import get_collector_service, get_database_manager
-from tests.conftest import build_symbol_rows, csv_bytes
+from app.services.csv_ingestion_service import CsvParseResult
+from app.services.dependencies import get_collector_service
+from app.services.google_drive_client import GoogleDriveStatus
 
 
 class FakeCollectorSource:
-    """Return deterministic rows without making an external network request."""
+    """Return one deterministic approved symbol without external network access."""
 
     name = "fake-dse-source"
 
@@ -30,73 +29,77 @@ class FakeCollectorSource:
         end_date: date,
         allowed_symbols: set[str],
     ) -> CollectorBatch:
-        selected = sorted(allowed_symbols)[:1]
-        rows: list[OhlcRow] = []
-        candidate = start_date
-        while candidate <= end_date:
-            if candidate.weekday() not in (4, 5):
-                rows.extend(
-                    OhlcRow(
-                        symbol=symbol,
-                        trade_date=candidate,
-                        open=101.0,
-                        high=104.0,
-                        low=100.0,
-                        close=103.0,
-                        volume=150_000,
-                        trade=500,
-                        value=15_450_000,
-                    )
-                    for symbol in selected
-                )
-            candidate += timedelta(days=1)
+        symbol = "ACI"
+        assert symbol in allowed_symbols
+        row = OhlcRow(
+            symbol=symbol,
+            trade_date=end_date,
+            open=101.0,
+            high=104.0,
+            low=100.0,
+            close=103.0,
+            volume=150_000,
+            trade=500,
+            value=15_450_000,
+        )
         return CollectorBatch(
-            rows=rows,
-            fetched_rows=len(rows),
+            rows=[row],
+            fetched_rows=1,
             invalid_rows=0,
-            missing_symbols=sorted(allowed_symbols - set(selected)),
+            missing_symbols=sorted(allowed_symbols - {symbol}),
             warnings=[],
         )
 
 
+class FakeDriveRepository:
+    """Minimal connected Drive repository used by endpoint tests."""
+
+    def drive_status(self) -> GoogleDriveStatus:
+        return GoogleDriveStatus(
+            configured=True,
+            connected=True,
+            message="Drive ready.",
+        )
+
+    def sync_from_drive(self, force: bool = False) -> bool:
+        return force
+
+    def get_status(self) -> object:
+        return type("Status", (), {"latest_trade_date": date(2026, 6, 30)})()
+
+    def merge_and_save_to_drive(
+        self,
+        parsed: CsvParseResult,
+    ) -> tuple[int, int, CsvParseResult]:
+        return len(parsed.valid_rows), 0, parsed
+
+
 def _collector_service() -> CollectorService:
-    manager = get_database_manager()
+    settings = get_settings()
     return CollectorService(
-        settings=get_settings(),
-        repository=CollectorRepository(manager),
-        ohlc_repository=OhlcDbRepository(manager),
-        audit_service=DataAuditService(manager),
+        settings=settings,
+        repository=CollectorJobRepository(settings.collector_storage_path),
+        ohlc_repository=FakeDriveRepository(),  # type: ignore[arg-type]
         source=FakeCollectorSource(),
     )
 
 
-def _seed_database(client: TestClient) -> None:
-    rows = build_symbol_rows("ALPHA", days=65)
-    rows += build_symbol_rows("BETA", days=65)
-    response = client.post(
-        "/data/ohlc/import-db",
-        files={"file": ("seed.csv", csv_bytes(rows), "text/csv")},
-    )
-    assert response.status_code == 200
-    assert response.json()["ok"] is True
-
-
-def test_collector_requires_backend_admin_token(database_client: TestClient) -> None:
-    response = database_client.post("/collector/run", json={"trade_date": "2026-07-01"})
+def test_collector_requires_backend_admin_token(client: TestClient) -> None:
+    response = client.post("/collector/run", json={"trade_date": "2026-07-01"})
 
     assert response.status_code == 503
     assert "COLLECTOR_ADMIN_TOKEN" in response.json()["detail"]
 
 
 def test_collector_rejects_invalid_token(
-    database_client: TestClient,
+    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
-        response = database_client.post(
+        response = client.post(
             "/collector/run",
             json={"trade_date": "2026-07-01"},
             headers={"X-Collector-Token": "wrong-secret"},
@@ -108,22 +111,21 @@ def test_collector_rejects_invalid_token(
     assert response.status_code == 403
 
 
-def test_collector_runs_in_background_and_upserts_database(
-    database_client: TestClient,
+def test_collector_runs_in_background_and_updates_drive_master(
+    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_database(database_client)
     monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
-        queued = database_client.post(
+        queued = client.post(
             "/collector/run",
             json={"trade_date": "2026-07-01", "collect_missing": False},
             headers={"X-Collector-Token": "server-secret"},
         )
-        latest = database_client.get("/collector/latest")
-        history = database_client.get("/collector/history?limit=5")
+        latest = client.get("/collector/latest")
+        history = client.get("/collector/history?limit=5")
     finally:
         app.dependency_overrides.pop(get_collector_service, None)
         get_settings.cache_clear()
@@ -138,22 +140,21 @@ def test_collector_runs_in_background_and_upserts_database(
     assert payload["collected_symbols"] == 1
     assert payload["inserted_rows"] == 1
     assert payload["updated_rows"] == 0
-    assert payload["missing_symbols"] == ["BETA"]
     assert payload["scanner_refresh_required"] is True
+    assert any("Google Drive master updated" in item for item in payload["warnings"])
     assert history.status_code == 200
     assert history.json()["count"] == 1
 
 
 def test_collector_rejects_future_date(
-    database_client: TestClient,
+    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_database(database_client)
     monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "server-secret")
     get_settings.cache_clear()
     app.dependency_overrides[get_collector_service] = _collector_service
     try:
-        response = database_client.post(
+        response = client.post(
             "/collector/run",
             json={"trade_date": "2099-01-01"},
             headers={"X-Collector-Token": "server-secret"},
