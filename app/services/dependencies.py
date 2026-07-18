@@ -13,6 +13,8 @@ from app.services.collector_service import CollectorService
 from app.services.collector_source import BdshareCollectorSource, CollectorSource
 from app.services.csv_ingestion_service import CsvIngestionService
 from app.services.data_audit_service import DataAuditService
+from app.services.drive_ohlc_repository import DriveOhlcRepository
+from app.services.google_drive_client import GoogleDriveClient
 from app.services.indicator_service import IndicatorService
 from app.services.ohlc_repository import OhlcRepository
 from app.services.scanner_engine import ScannerEngine
@@ -37,6 +39,18 @@ def get_vercel_blob_client() -> VercelBlobClient:
     return VercelBlobClient(token=os.getenv("BLOB_READ_WRITE_TOKEN", ""))
 
 
+@lru_cache
+def get_google_drive_client() -> GoogleDriveClient:
+    """Legacy compatibility client; Google Drive is not the production storage path."""
+
+    settings = get_settings()
+    return GoogleDriveClient(
+        folder_id=settings.google_drive_folder_id,
+        service_account_json=settings.google_drive_service_account_json,
+        service_account_json_b64=settings.google_drive_service_account_json_b64,
+    )
+
+
 def get_csv_ingestion_service() -> CsvIngestionService:
     return CsvIngestionService()
 
@@ -54,6 +68,17 @@ def get_blob_ohlc_repository() -> BlobOhlcRepository:
         local_repository=get_local_ohlc_repository(),
         blob_client=get_vercel_blob_client(),
         master_pathname=os.getenv("VERCEL_BLOB_MASTER_PATHNAME", "dse/DSE_OHLC_MASTER.csv"),
+    )
+
+
+def get_drive_ohlc_repository() -> DriveOhlcRepository:
+    """Legacy compatibility repository; not used by the production app pipeline."""
+
+    settings = get_settings()
+    return DriveOhlcRepository(
+        local_repository=get_local_ohlc_repository(),
+        drive_client=get_google_drive_client(),
+        master_filename=settings.google_drive_master_filename,
     )
 
 
