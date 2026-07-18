@@ -1,4 +1,4 @@
-"""Manual scanner routes using only the approved Drive-backed local OHLC cache."""
+"""Manual scanner routes and market scheduler status."""
 
 from typing import Annotated
 
@@ -6,12 +6,16 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.sectors import SectorName
 from app.core.signal_rules import SignalGrade, SignalStatus
-from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.schemas.scanner_result import ScannerCandidatesResponse, ScannerResultResponse
-from app.services.dependencies import get_ohlc_repository, get_scanner_engine, get_scanner_repository
-from app.services.ohlc_repository import OhlcRepository
-from app.services.scanner_engine import ScannerEngine
+from app.schemas.scanner_scheduler import ScannerSchedulerStatusResponse
+from app.services.dependencies import (
+    get_market_scanner_scheduler,
+    get_scanner_repository,
+    get_scanner_service,
+)
 from app.services.scanner_repository import ScannerRepository
+from app.services.scanner_scheduler import MarketScannerScheduler
+from app.services.scanner_service import ScannerService
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
@@ -34,63 +38,20 @@ def _no_scan() -> ScannerResultResponse:
 
 @router.post("/run", response_model=ScannerResultResponse)
 def run_scanner(
-    ohlc_cache: Annotated[OhlcRepository, Depends(get_ohlc_repository)],
-    scanner_repository: Annotated[ScannerRepository, Depends(get_scanner_repository)],
-    scanner_engine: Annotated[ScannerEngine, Depends(get_scanner_engine)],
+    service: Annotated[ScannerService, Depends(get_scanner_service)],
 ) -> ScannerResultResponse:
-    """Scan only the approved Phase-1 universe from the Drive-backed OHLC cache."""
+    """Run the exact same approved scanner path used by the automatic scheduler."""
 
-    rows = ohlc_cache.get_all_rows()
-    if not rows:
-        return ScannerResultResponse(
-            ok=False,
-            mode="no_data",
-            data_source="none",
-            scanned_symbols=0,
-            eligible_symbols=0,
-            qualified_count=0,
-            watch_count=0,
-            rejected_count=0,
-            generated_at=None,
-            message=(
-                "No approved DSE OHLC cache is available. "
-                "Import/sync verified OHLC data through the Google Drive storage pipeline first."
-            ),
-            candidates=[],
-        )
+    return service.run()
 
-    source_symbols = {row.symbol for row in rows}
-    approved_rows = [row for row in rows if row.symbol in PHASE1_SYMBOLS]
-    approved_symbols = source_symbols & PHASE1_SYMBOLS
-    out_of_scope_count = len(source_symbols - PHASE1_SYMBOLS)
 
-    if not approved_rows:
-        return ScannerResultResponse(
-            ok=False,
-            mode="no_data",
-            data_source="none",
-            scanned_symbols=len(source_symbols),
-            eligible_symbols=0,
-            qualified_count=0,
-            watch_count=0,
-            rejected_count=0,
-            generated_at=None,
-            message=(
-                "The OHLC cache contains no approved Phase-1 symbols. "
-                f"{out_of_scope_count} out-of-scope symbol(s) were excluded fail-closed."
-            ),
-            candidates=[],
-        )
+@router.get("/scheduler/status", response_model=ScannerSchedulerStatusResponse)
+def get_scanner_scheduler_status(
+    scheduler: Annotated[MarketScannerScheduler, Depends(get_market_scanner_scheduler)],
+) -> ScannerSchedulerStatusResponse:
+    """Return market schedule, next slot, and last automatic-run state."""
 
-    result = scanner_engine.run(approved_rows, source="local_csv")
-    result.scanned_symbols = len(source_symbols)
-    result.message = (
-        f"Phase-1 scanner evaluated {len(approved_symbols)} approved symbol(s). "
-        f"{out_of_scope_count} out-of-scope symbol(s) were excluded fail-closed. "
-        + result.message
-    )
-    scanner_repository.save(result)
-    return result
+    return scheduler.status()
 
 
 @router.get("/latest", response_model=ScannerResultResponse)
