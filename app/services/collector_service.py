@@ -1,19 +1,22 @@
-"""Manual DSE collection orchestration and database upsert workflow."""
+"""Manual DSE collection orchestration using Google Drive as canonical OHLC storage."""
 
 from __future__ import annotations
 
 import secrets
+from collections import Counter
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.config import Settings
-from app.repositories.collector_repository import CollectorRepository
-from app.repositories.ohlc_db_repository import OhlcDbRepository
+from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.schemas.collector import CollectorRunResponse
+from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_source import CollectorSource, CollectorSourceError
-from app.services.data_audit_service import DataAuditService
+from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvParseResult
+from app.services.drive_ohlc_repository import DriveOhlcRepository
 
 _MAX_BACKFILL_CALENDAR_DAYS = 45
+_MINIMUM_SCANNER_ROWS = 60
 
 
 class CollectorDisabledError(RuntimeError):
@@ -29,25 +32,23 @@ class CollectorConflictError(RuntimeError):
 
 
 class CollectorUnavailableError(RuntimeError):
-    """Raised when collector database tables or OHLC storage are unavailable."""
+    """Raised when Drive-backed collection cannot run safely."""
 
 
 class CollectorService:
-    """Create, execute, and inspect safe manual collector jobs."""
+    """Create, execute, and inspect safe manual Drive-backed collector jobs."""
 
     def __init__(
         self,
         *,
         settings: Settings,
-        repository: CollectorRepository,
-        ohlc_repository: OhlcDbRepository,
-        audit_service: DataAuditService,
+        repository: CollectorJobRepository,
+        ohlc_repository: DriveOhlcRepository,
         source: CollectorSource,
     ) -> None:
         self._settings = settings
         self._repository = repository
         self._ohlc_repository = ohlc_repository
-        self._audit_service = audit_service
         self._source = source
 
     def authorize(self, supplied_token: str | None) -> None:
@@ -61,12 +62,11 @@ class CollectorService:
             raise CollectorAuthorizationError("Collector authorization failed.")
 
     def start(self, requested_trade_date: date | None) -> CollectorRunResponse:
-        if not self._repository.is_available():
+        drive_status = self._ohlc_repository.drive_status()
+        if not drive_status.connected:
             raise CollectorUnavailableError(
-                "Collector table is unavailable. Run POST /db/init after deployment."
+                "Google Drive OHLC storage is unavailable. " + drive_status.message
             )
-        if not self._ohlc_repository.is_available():
-            raise CollectorUnavailableError("Database OHLC storage is unavailable.")
         self._repository.fail_stale_active()
         active = self._repository.get_active()
         if active is not None:
@@ -77,10 +77,7 @@ class CollectorService:
         trade_date = requested_trade_date or self._default_trade_date()
         if trade_date > datetime.now(ZoneInfo("Asia/Dhaka")).date():
             raise ValueError("Future trade dates are not allowed.")
-        job = self._repository.create(trade_date, self._source.name)
-        if job is None:
-            raise CollectorUnavailableError("Collector job could not be created safely.")
-        return job
+        return self._repository.create(trade_date, self._source.name)
 
     def execute(self, job_id: str, collect_missing: bool = True) -> None:
         job = self._repository.get(job_id)
@@ -90,11 +87,14 @@ class CollectorService:
             return
 
         try:
-            symbols_response = self._ohlc_repository.get_symbols()
-            allowed_symbols = set(symbols_response.symbols)
-            if not allowed_symbols:
-                raise CollectorUnavailableError("Approved OHLC universe is empty.")
+            drive_status = self._ohlc_repository.drive_status()
+            if not drive_status.connected:
+                raise CollectorUnavailableError(
+                    "Google Drive OHLC storage is unavailable. " + drive_status.message
+                )
 
+            self._ohlc_repository.sync_from_drive(force=True)
+            allowed_symbols = set(PHASE1_SYMBOLS)
             collection_dates = self._collection_dates(
                 job.requested_trade_date,
                 collect_missing,
@@ -111,10 +111,18 @@ class CollectorService:
                     "No requested trading date produced valid DSE rows."
                 )
 
-            inserted, updated = self._ohlc_repository.upsert(all_rows)
+            parsed = CsvParseResult(
+                filename=f"collector-{job.requested_trade_date.isoformat()}.csv",
+                detected_headers=list(NORMALIZED_HEADERS),
+                valid_rows=all_rows,
+                invalid_rows=batch.invalid_rows,
+                warnings=list(batch.warnings),
+                errors=[],
+            )
+            inserted, updated, merged = self._ohlc_repository.merge_and_save_to_drive(parsed)
             if inserted + updated == 0:
                 raise CollectorUnavailableError(
-                    "Collector rows could not be upserted into database storage."
+                    "Collector rows could not be merged into the Google Drive OHLC master."
                 )
 
             successful_dates = sorted({row.trade_date for row in all_rows})
@@ -124,11 +132,21 @@ class CollectorService:
                 f"Collected {len(successful_dates)} of "
                 f"{len(collection_dates)} trading-day candidates.",
             )
-            audit = self._audit_service.audit()
-            if not audit.scanner_ready:
+            warnings.append(
+                "Google Drive master updated and the backend local OHLC cache refreshed."
+            )
+
+            approved_counts = Counter(
+                row.symbol for row in merged.valid_rows if row.symbol in PHASE1_SYMBOLS
+            )
+            eligible_symbols = sum(
+                count >= _MINIMUM_SCANNER_ROWS for count in approved_counts.values()
+            )
+            if eligible_symbols == 0:
                 warnings.append(
-                    "Post-collection OHLC audit is not scanner-ready; review /data/audit."
+                    "Post-collection cache has no Phase-1 symbol with the minimum 60 rows required by the scanner."
                 )
+
             self._repository.mark_completed(
                 job_id,
                 fetched_rows=batch.fetched_rows,

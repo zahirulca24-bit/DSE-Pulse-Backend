@@ -4,9 +4,9 @@ from functools import lru_cache
 
 from app.core.config import get_settings
 from app.db.database import DatabaseManager
-from app.repositories.collector_repository import CollectorRepository
 from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.repositories.scanner_db_repository import ScannerDbRepository
+from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_service import CollectorService
 from app.services.collector_source import BdshareCollectorSource, CollectorSource
 from app.services.csv_ingestion_service import CsvIngestionService
@@ -79,8 +79,10 @@ def get_scanner_db_repository() -> ScannerDbRepository:
     return ScannerDbRepository(get_database_manager())
 
 
-def get_collector_repository() -> CollectorRepository:
-    return CollectorRepository(get_database_manager())
+def get_collector_repository() -> CollectorJobRepository:
+    """Return DB-free collector job-state persistence."""
+
+    return CollectorJobRepository(get_settings().collector_storage_path)
 
 
 def get_collector_source() -> CollectorSource:
@@ -88,11 +90,12 @@ def get_collector_source() -> CollectorSource:
 
 
 def get_collector_service() -> CollectorService:
+    """Build the production collector on Google Drive canonical OHLC storage."""
+
     return CollectorService(
         settings=get_settings(),
         repository=get_collector_repository(),
-        ohlc_repository=get_ohlc_db_repository(),
-        audit_service=get_data_audit_service(),
+        ohlc_repository=get_drive_ohlc_repository(),
         source=get_collector_source(),
     )
 

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     collector_admin_token: str = ""
     ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
     scanner_storage_path: Path = Path("storage/scanner_latest.json")
+    collector_storage_path: Path = Path("storage/collector_jobs.json")
     google_drive_folder_id: str = ""
     google_drive_master_filename: str = "DSE_OHLC_MASTER.csv"
     google_drive_service_account_json: str = ""
