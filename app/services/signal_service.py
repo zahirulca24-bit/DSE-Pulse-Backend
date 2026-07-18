@@ -1,24 +1,16 @@
-"""Return only persisted real scanner signals; never fabricate demo signals."""
+"""Return only real signals from the approved cache-backed scanner result."""
 
 from app.core.signal_rules import public_signal_rules
-from app.repositories.scanner_db_repository import ScannerDbRepository
 from app.schemas.signals import SignalsResponse
 from app.services.scanner_repository import ScannerRepository
 
 
 class SignalService:
-    def __init__(
-        self,
-        database_repository: ScannerDbRepository,
-        local_repository: ScannerRepository,
-    ) -> None:
-        self._database_repository = database_repository
-        self._local_repository = local_repository
+    def __init__(self, repository: ScannerRepository) -> None:
+        self._repository = repository
 
     def get_signals(self) -> SignalsResponse:
-        latest = self._database_repository.load_latest()
-        if latest is None:
-            latest = self._local_repository.load()
+        latest = self._repository.load()
 
         if latest is not None and latest.ok:
             candidates = [
