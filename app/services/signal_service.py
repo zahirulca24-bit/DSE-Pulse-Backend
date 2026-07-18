@@ -16,14 +16,19 @@ class SignalService:
             candidates = [
                 item
                 for item in latest.candidates
-                if item.signal_status in {"qualified", "watch"}
+                if (
+                    item.signal_status == "qualified"
+                    and item.qualification_passed
+                    and item.grade in {"A+", "A"}
+                )
+                or (item.signal_status == "watch" and item.grade == "B+")
             ]
             return SignalsResponse(
                 mode=latest.mode,
                 data_source=latest.data_source,
                 signals=candidates,
                 rules=public_signal_rules(),
-                message="Latest persisted scanner signals returned.",
+                message="Latest persisted scanner signals returned after strict qualification gates.",
             )
 
         return SignalsResponse(
