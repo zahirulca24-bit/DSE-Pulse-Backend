@@ -1,4 +1,4 @@
-"""Manual DSE collection orchestration using Google Drive as canonical OHLC storage."""
+"""Manual DSE collection orchestration using Vercel Blob as canonical OHLC storage."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 from app.core.config import Settings
 from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.schemas.collector import CollectorRunResponse
+from app.services.blob_ohlc_repository import BlobOhlcRepository
 from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_source import CollectorSource, CollectorSourceError
 from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvParseResult
-from app.services.drive_ohlc_repository import DriveOhlcRepository
 
 _MAX_BACKFILL_CALENDAR_DAYS = 45
 _MINIMUM_SCANNER_ROWS = 60
@@ -32,18 +32,18 @@ class CollectorConflictError(RuntimeError):
 
 
 class CollectorUnavailableError(RuntimeError):
-    """Raised when Drive-backed collection cannot run safely."""
+    """Raised when durable Blob-backed collection cannot run safely."""
 
 
 class CollectorService:
-    """Create, execute, and inspect safe manual Drive-backed collector jobs."""
+    """Create, execute, and inspect safe manual Blob-backed collector jobs."""
 
     def __init__(
         self,
         *,
         settings: Settings,
         repository: CollectorJobRepository,
-        ohlc_repository: DriveOhlcRepository,
+        ohlc_repository: BlobOhlcRepository,
         source: CollectorSource,
     ) -> None:
         self._settings = settings
@@ -62,10 +62,10 @@ class CollectorService:
             raise CollectorAuthorizationError("Collector authorization failed.")
 
     def start(self, requested_trade_date: date | None) -> CollectorRunResponse:
-        drive_status = self._ohlc_repository.drive_status()
-        if not drive_status.connected:
+        storage_status = self._ohlc_repository.blob_status()
+        if not storage_status.connected:
             raise CollectorUnavailableError(
-                "Google Drive OHLC storage is unavailable. " + drive_status.message
+                "Vercel Blob OHLC storage is unavailable. " + storage_status.message
             )
         self._repository.fail_stale_active()
         active = self._repository.get_active()
@@ -87,13 +87,13 @@ class CollectorService:
             return
 
         try:
-            drive_status = self._ohlc_repository.drive_status()
-            if not drive_status.connected:
+            storage_status = self._ohlc_repository.blob_status()
+            if not storage_status.connected:
                 raise CollectorUnavailableError(
-                    "Google Drive OHLC storage is unavailable. " + drive_status.message
+                    "Vercel Blob OHLC storage is unavailable. " + storage_status.message
                 )
 
-            self._ohlc_repository.sync_from_drive(force=True)
+            self._ohlc_repository.sync_from_blob(force=True)
             allowed_symbols = set(PHASE1_SYMBOLS)
             collection_dates = self._collection_dates(
                 job.requested_trade_date,
@@ -119,10 +119,10 @@ class CollectorService:
                 warnings=list(batch.warnings),
                 errors=[],
             )
-            inserted, updated, merged = self._ohlc_repository.merge_and_save_to_drive(parsed)
+            inserted, updated, merged = self._ohlc_repository.merge_and_save_to_blob(parsed)
             if inserted + updated == 0:
                 raise CollectorUnavailableError(
-                    "Collector rows could not be merged into the Google Drive OHLC master."
+                    "Collector rows could not be merged into the Vercel Blob OHLC master."
                 )
 
             successful_dates = sorted({row.trade_date for row in all_rows})
@@ -133,7 +133,7 @@ class CollectorService:
                 f"{len(collection_dates)} trading-day candidates.",
             )
             warnings.append(
-                "Google Drive master updated and the backend local OHLC cache refreshed."
+                "Vercel Blob master updated and the backend local OHLC cache refreshed."
             )
 
             approved_counts = Counter(
