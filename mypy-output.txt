@@ -1,7 +1,1 @@
-app/repositories/collector_repository.py:184: error: Unused "type: ignore" comment  [unused-ignore]
-app/services/google_drive_client.py:12: error: Skipping analyzing "googleapiclient.discovery": module is installed, but missing library stubs or py.typed marker  [import-untyped]
-app/services/google_drive_client.py:12: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
-app/services/google_drive_client.py:13: error: Skipping analyzing "googleapiclient.errors": module is installed, but missing library stubs or py.typed marker  [import-untyped]
-app/services/google_drive_client.py:14: error: Skipping analyzing "googleapiclient.http": module is installed, but missing library stubs or py.typed marker  [import-untyped]
-app/services/google_drive_client.py:156: error: Call to untyped function "from_service_account_info" of "Credentials" in typed context  [no-untyped-call]
-Found 5 errors in 2 files (checked 55 source files)
+Success: no issues found in 55 source files
