@@ -1,4 +1,4 @@
-"""Database/local scanner signals with demo fallback route."""
+"""Persisted real scanner signals only; no demo fallback."""
 
 from typing import Annotated
 
