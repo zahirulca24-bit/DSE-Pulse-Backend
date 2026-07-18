@@ -41,6 +41,9 @@ class ScannerCandidate(BaseModel):
     rsi14: float
     volume_ratio: float = Field(ge=0)
     risk_reward: float = Field(ge=0)
+    qualification_passed: bool = False
+    qualification_failures: list[str] = Field(default_factory=list)
+    entry_distance_percent: float | None = Field(default=None, ge=0)
     reasons: list[str]
     warnings: list[str]
     data_mode: Literal["Database", "Local CSV"]
