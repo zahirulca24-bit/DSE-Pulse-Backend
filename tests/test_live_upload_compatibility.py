@@ -47,7 +47,11 @@ def test_live_frontend_drive_routes_save_to_blob(
         blob_client=fake,  # type: ignore[arg-type]
         master_pathname="dse/DSE_OHLC_MASTER.csv",
     )
-    app.dependency_overrides[get_blob_ohlc_repository] = lambda: repository
+
+    def override_blob_repository() -> BlobOhlcRepository:
+        return repository
+
+    app.dependency_overrides[get_blob_ohlc_repository] = override_blob_repository
     payload = (
         "symbol,trade_date,open,high,low,close,volume\n"
         "ACI,2026-07-20,280,286,278,284,510000\n"
