@@ -53,9 +53,9 @@ def test_live_frontend_drive_routes_save_to_blob(
 
     app.dependency_overrides[get_blob_ohlc_repository] = override_blob_repository
     payload = (
-        "symbol,trade_date,open,high,low,close,volume\n"
-        "ACI,2026-07-20,280,286,278,284,510000\n"
-    ).encode()
+        b"symbol,trade_date,open,high,low,close,volume\n"
+        b"ACI,2026-07-20,280,286,278,284,510000\n"
+    )
 
     try:
         status_response = client.get("/drive/status")
