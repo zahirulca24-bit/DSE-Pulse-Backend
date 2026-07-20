@@ -10,6 +10,7 @@ from app.api.routes import (
     collector,
     data,
     database,
+    drive,
     health,
     ohlc,
     scanner,
@@ -50,6 +51,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(status.router)
 app.include_router(storage.router)
+app.include_router(drive.router)
 app.include_router(database.router)
 app.include_router(collector.router)
 app.include_router(scanner.router)
