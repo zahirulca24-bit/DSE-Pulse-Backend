@@ -42,7 +42,7 @@ app = FastAPI(
     description="Vercel Blob backed DSE data storage, audit, OHLC, and scheduled scanner API.",
     lifespan=lifespan,
 )
-app.add_middleware(UploadSecurityMiddleware, settings=settings)
+app.add_middleware(UploadSecurityMiddleware, settings_provider=get_settings)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
