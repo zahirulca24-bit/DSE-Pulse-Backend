@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from collections.abc import Awaitable, Callable
 from http import HTTPStatus
@@ -14,6 +15,7 @@ Message = dict[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 Send = Callable[[Message], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+SettingsProvider = Callable[[], Settings]
 
 _PROTECTED_UPLOAD_PATHS = frozenset(
     {
@@ -28,9 +30,9 @@ _PROTECTED_UPLOAD_PATHS = frozenset(
 class UploadSecurityMiddleware:
     """Authenticate and size-limit canonical data mutation requests."""
 
-    def __init__(self, app: ASGIApp, settings: Settings) -> None:
+    def __init__(self, app: ASGIApp, settings_provider: SettingsProvider) -> None:
         self._app = app
-        self._settings = settings
+        self._settings_provider = settings_provider
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
@@ -43,11 +45,12 @@ class UploadSecurityMiddleware:
             await self._app(scope, receive, send)
             return
 
+        settings = self._settings_provider()
         headers = {
             key.decode("latin-1").lower(): value.decode("latin-1")
             for key, value in scope.get("headers", [])
         }
-        configured = self._settings.data_admin_token.strip()
+        configured = settings.data_admin_token.strip()
         supplied = headers.get("x-data-admin-token", "").strip()
 
         if not configured:
@@ -61,6 +64,7 @@ class UploadSecurityMiddleware:
             await self._json_error(send, HTTPStatus.FORBIDDEN, "Data import authorization failed.")
             return
 
+        limit = max(settings.max_upload_bytes, 1)
         content_length = headers.get("content-length", "").strip()
         if content_length:
             try:
@@ -71,8 +75,8 @@ class UploadSecurityMiddleware:
             if declared_size < 0:
                 await self._json_error(send, HTTPStatus.BAD_REQUEST, "Invalid Content-Length header.")
                 return
-            if declared_size > self._settings.max_upload_bytes:
-                await self._payload_too_large(send)
+            if declared_size > limit:
+                await self._payload_too_large(send, limit)
                 return
 
         buffered: list[Message] = []
@@ -83,8 +87,8 @@ class UploadSecurityMiddleware:
                 buffered.append(message)
                 break
             received += len(message.get("body", b""))
-            if received > self._settings.max_upload_bytes:
-                await self._payload_too_large(send)
+            if received > limit:
+                await self._payload_too_large(send, limit)
                 return
             buffered.append(message)
             if not message.get("more_body", False):
@@ -102,18 +106,17 @@ class UploadSecurityMiddleware:
 
         await self._app(scope, replay, send)
 
-    async def _payload_too_large(self, send: Send) -> None:
-        limit_mb = self._settings.max_upload_bytes // (1024 * 1024)
-        await self._json_error(
+    @classmethod
+    async def _payload_too_large(cls, send: Send, limit: int) -> None:
+        limit_mb = limit / (1024 * 1024)
+        await cls._json_error(
             send,
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-            f"Upload exceeds the configured {limit_mb} MB limit.",
+            f"Upload exceeds the configured {limit_mb:g} MB limit.",
         )
 
     @staticmethod
     async def _json_error(send: Send, status_code: HTTPStatus, detail: str) -> None:
-        import json
-
         body = json.dumps({"detail": detail}, separators=(",", ":")).encode("utf-8")
         await send(
             {
