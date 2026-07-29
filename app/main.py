@@ -21,6 +21,7 @@ from app.api.routes import (
     symbols,
 )
 from app.core.config import get_settings
+from app.middleware.upload_security import UploadSecurityMiddleware
 from app.services.dependencies import get_market_scanner_scheduler
 
 
@@ -41,12 +42,13 @@ app = FastAPI(
     description="Vercel Blob backed DSE data storage, audit, OHLC, and scheduled scanner API.",
     lifespan=lifespan,
 )
+app.add_middleware(UploadSecurityMiddleware, settings=settings)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-Collector-Token"],
+    allow_headers=["Accept", "Content-Type", "X-Collector-Token", "X-Data-Admin-Token"],
 )
 app.include_router(health.router)
 app.include_router(status.router)
