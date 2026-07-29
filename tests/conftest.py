@@ -16,6 +16,8 @@ from app.db.init_db import initialize_database
 from app.main import app
 from app.services.dependencies import get_database_manager, get_vercel_blob_client
 
+_TEST_DATA_ADMIN_TOKEN = "test-data-admin-token"
+
 
 def build_symbol_rows(
     symbol: str,
@@ -96,10 +98,12 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
     monkeypatch.setenv("OHLC_STORAGE_PATH", str(ohlc_path))
     monkeypatch.setenv("SCANNER_STORAGE_PATH", str(scanner_path))
     monkeypatch.setenv("COLLECTOR_STORAGE_PATH", str(collector_path))
+    monkeypatch.setenv("DATA_ADMIN_TOKEN", _TEST_DATA_ADMIN_TOKEN)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_DATABASE_URL", raising=False)
     monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
     monkeypatch.delenv("VERCEL_BLOB_MASTER_PATHNAME", raising=False)
+    monkeypatch.delenv("MAX_UPLOAD_BYTES", raising=False)
     get_settings.cache_clear()
     yield ohlc_path
     try:
@@ -112,9 +116,9 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
 
 @pytest.fixture
 def client() -> TestClient:
-    """Return an isolated FastAPI test client."""
+    """Return an isolated authorized FastAPI test client."""
 
-    return TestClient(app)
+    return TestClient(app, headers={"X-Data-Admin-Token": _TEST_DATA_ADMIN_TOKEN})
 
 
 @pytest.fixture
