@@ -8,6 +8,7 @@ from app.core.sectors import SectorName
 from app.core.signal_rules import SignalGrade, SignalStatus
 from app.schemas.scanner_result import ScannerCandidatesResponse, ScannerResultResponse
 from app.schemas.scanner_scheduler import ScannerSchedulerStatusResponse
+from app.security.admin import require_backend_admin
 from app.services.dependencies import (
     get_market_scanner_scheduler,
     get_scanner_repository,
@@ -21,27 +22,14 @@ router = APIRouter(prefix="/scanner", tags=["scanner"])
 
 
 def _no_scan() -> ScannerResultResponse:
-    return ScannerResultResponse(
-        ok=False,
-        mode="no_scan",
-        data_source="none",
-        scanned_symbols=0,
-        eligible_symbols=0,
-        qualified_count=0,
-        watch_count=0,
-        rejected_count=0,
-        generated_at=None,
-        message="No scanner result exists yet. Run POST /scanner/run first.",
-        candidates=[],
-    )
+    return ScannerResultResponse(ok=False, mode="no_scan", data_source="none", scanned_symbols=0,
+        eligible_symbols=0, qualified_count=0, watch_count=0, rejected_count=0, generated_at=None,
+        message="No scanner result exists yet. Run POST /scanner/run first.", candidates=[])
 
 
-@router.post("/run", response_model=ScannerResultResponse)
-def run_scanner(
-    service: Annotated[ScannerService, Depends(get_scanner_service)],
-) -> ScannerResultResponse:
-    """Run the exact same approved scanner path used by the automatic scheduler."""
-
+@router.post("/run", response_model=ScannerResultResponse, dependencies=[Depends(require_backend_admin)])
+def run_scanner(service: Annotated[ScannerService, Depends(get_scanner_service)]) -> ScannerResultResponse:
+    """Run the approved scanner path after administrator authorization."""
     return service.run()
 
 
@@ -49,8 +37,6 @@ def run_scanner(
 def get_scanner_scheduler_status(
     scheduler: Annotated[MarketScannerScheduler, Depends(get_market_scanner_scheduler)],
 ) -> ScannerSchedulerStatusResponse:
-    """Return market schedule, next slot, and last automatic-run state."""
-
     return scheduler.status()
 
 
@@ -58,8 +44,6 @@ def get_scanner_scheduler_status(
 def get_latest_scanner_result(
     repository: Annotated[ScannerRepository, Depends(get_scanner_repository)],
 ) -> ScannerResultResponse:
-    """Return only the latest scan persisted by the approved cache-backed scanner path."""
-
     return repository.load() or _no_scan()
 
 
@@ -71,30 +55,14 @@ def get_scanner_candidates(
     sector: Annotated[SectorName | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> ScannerCandidatesResponse:
-    """Filter candidates from the latest approved cache-backed scanner result only."""
-
     latest = repository.load()
     if latest is None:
-        return ScannerCandidatesResponse(
-            ok=False,
-            mode="no_scan",
-            data_source="none",
-            message="No scanner result exists yet. Run POST /scanner/run first.",
-            candidates_count=0,
-            candidates=[],
-        )
-    candidates = [
-        candidate
-        for candidate in latest.candidates
+        return ScannerCandidatesResponse(ok=False, mode="no_scan", data_source="none",
+            message="No scanner result exists yet. Run POST /scanner/run first.", candidates_count=0,
+            candidates=[])
+    candidates = [candidate for candidate in latest.candidates
         if (grade is None or candidate.grade == grade)
         and (signal_status is None or candidate.signal_status == signal_status)
-        and (sector is None or candidate.sector == sector)
-    ][:limit]
-    return ScannerCandidatesResponse(
-        ok=True,
-        mode=latest.mode,
-        data_source=latest.data_source,
-        message="Latest scanner candidates returned.",
-        candidates_count=len(candidates),
-        candidates=candidates,
-    )
+        and (sector is None or candidate.sector == sector)][:limit]
+    return ScannerCandidatesResponse(ok=True, mode=latest.mode, data_source=latest.data_source,
+        message="Latest scanner candidates returned.", candidates_count=len(candidates), candidates=candidates)

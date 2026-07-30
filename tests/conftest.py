@@ -16,6 +16,8 @@ from app.db.init_db import initialize_database
 from app.main import app
 from app.services.dependencies import get_database_manager
 
+_TEST_ADMIN_TOKEN = "test-backend-admin-token"
+
 
 def build_symbol_rows(
     symbol: str,
@@ -29,18 +31,22 @@ def build_symbol_rows(
     low_gap: float = 1.0,
     final_high_gap: float | None = None,
 ) -> list[dict[str, str]]:
-    """Build deterministic OHLC rows for scanner API tests."""
-
     rows: list[dict[str, str]] = []
     current = start
     start_date = date(2026, 1, 1)
     for index in range(days):
         current += drift + (swing if index % 2 == 0 else -swing)
         close = max(current, 1.0)
-        volume = 100_000
-        if index == days - 1:
-            volume = int(volume * final_volume_multiplier)
-        effective_high_gap = final_high_gap if index == days - 1 and final_high_gap is not None else high_gap
+        volume = (
+            int(100_000 * final_volume_multiplier)
+            if index == days - 1
+            else 100_000
+        )
+        effective_high_gap = (
+            final_high_gap
+            if index == days - 1 and final_high_gap is not None
+            else high_gap
+        )
         rows.append(
             {
                 "symbol": symbol,
@@ -58,8 +64,6 @@ def build_symbol_rows(
 
 
 def csv_bytes(rows: list[dict[str, str]]) -> bytes:
-    """Serialize normalized OHLC dictionaries to UTF-8 CSV bytes."""
-
     handle = StringIO()
     writer = csv.DictWriter(
         handle,
@@ -81,20 +85,26 @@ def csv_bytes(rows: list[dict[str, str]]) -> bytes:
 
 
 @pytest.fixture(autouse=True)
-def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
-    """Point every test at fresh local files with no remote storage/database by default."""
-
+def isolated_storage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Iterator[Path]:
     try:
         get_database_manager().dispose()
     finally:
         get_database_manager.cache_clear()
     storage_dir = tmp_path / "storage"
     ohlc_path = storage_dir / "dse_ohlc.csv"
-    scanner_path = storage_dir / "scanner_latest.json"
-    collector_path = storage_dir / "collector_jobs.json"
     monkeypatch.setenv("OHLC_STORAGE_PATH", str(ohlc_path))
-    monkeypatch.setenv("SCANNER_STORAGE_PATH", str(scanner_path))
-    monkeypatch.setenv("COLLECTOR_STORAGE_PATH", str(collector_path))
+    monkeypatch.setenv(
+        "SCANNER_STORAGE_PATH",
+        str(storage_dir / "scanner_latest.json"),
+    )
+    monkeypatch.setenv(
+        "COLLECTOR_STORAGE_PATH",
+        str(storage_dir / "collector_jobs.json"),
+    )
+    monkeypatch.setenv("BACKEND_ADMIN_TOKEN", _TEST_ADMIN_TOKEN)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_DATABASE_URL", raising=False)
     get_settings.cache_clear()
@@ -108,15 +118,13 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
 
 @pytest.fixture
 def client() -> TestClient:
-    """Return an isolated FastAPI test client."""
-
-    return TestClient(app)
+    test_client = TestClient(app)
+    test_client.headers.update({"X-Admin-Token": _TEST_ADMIN_TOKEN})
+    return test_client
 
 
 @pytest.fixture
 def scanner_csv() -> bytes:
-    """Return deterministic Phase-1 data producing all four locked grade outcomes."""
-
     rows: list[dict[str, str]] = []
     rows += build_symbol_rows(
         "SQURPHARMA",
@@ -147,8 +155,6 @@ def scanner_csv() -> bytes:
 
 @pytest.fixture
 def imported_client(client: TestClient, scanner_csv: bytes) -> TestClient:
-    """Import scanner fixture data and return the same client."""
-
     response = client.post(
         "/data/ohlc/import",
         files={"file": ("scanner.csv", scanner_csv, "text/csv")},
@@ -164,10 +170,11 @@ def database_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> TestClient:
-    """Configure and initialize an isolated SQLite database for repository tests."""
-
     database_path = tmp_path / "test_database.sqlite3"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{database_path}")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        f"sqlite+pysqlite:///{database_path}",
+    )
     get_settings.cache_clear()
     get_database_manager.cache_clear()
     assert initialize_database(get_database_manager()) is True

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     frontend_origin: str = ""
     database_url: str = ""
     supabase_database_url: str = ""
+    backend_admin_token: str = ""
     collector_admin_token: str = ""
     ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
     scanner_storage_path: Path = Path("storage/scanner_latest.json")
