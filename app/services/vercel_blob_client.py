@@ -51,14 +51,11 @@ class VercelBlobClient:
         if not self.configured:
             return None
         try:
-            result = self._client.get(pathname, access="private")
+            return self._client.get(pathname)
         except BlobNotFoundError:
             return None
         except BlobError as exc:
             raise RuntimeError("Vercel Blob master file could not be downloaded.") from exc
-        if result.status_code != 200:
-            return None
-        return result.content
 
     def upload_or_replace(self, pathname: str, content: bytes, content_type: str) -> str:
         if not self.configured:
