@@ -36,7 +36,7 @@ class MarketScannerScheduler:
 
     @property
     def enabled(self) -> bool:
-        return self._settings.scanner_scheduler_enabled
+        return self._settings.in_process_scheduler_enabled
 
     @property
     def running(self) -> bool:
@@ -46,7 +46,10 @@ class MarketScannerScheduler:
         if not self.enabled or self.running:
             return
         self._stopping = False
-        self._task = asyncio.create_task(self._loop(), name="dse-market-scanner-scheduler")
+        self._task = asyncio.create_task(
+            self._loop(),
+            name="dse-market-scanner-scheduler",
+        )
 
     async def stop(self) -> None:
         self._stopping = True
@@ -62,6 +65,9 @@ class MarketScannerScheduler:
 
     async def tick(self, now: datetime | None = None) -> bool:
         """Execute the most recent due slot once; return whether a scan was attempted."""
+
+        if not self.enabled:
+            return False
 
         current = self._normalize_now(now)
         slot = self._due_slot(current)
@@ -84,7 +90,7 @@ class MarketScannerScheduler:
     def status(self, now: datetime | None = None) -> ScannerSchedulerStatusResponse:
         current = self._normalize_now(now)
         state = self._state_repository.load()
-        due = self._due_slot(current)
+        due = self._due_slot(current) if self.enabled else None
         return ScannerSchedulerStatusResponse(
             enabled=self.enabled,
             running=self.running,
@@ -92,7 +98,7 @@ class MarketScannerScheduler:
             market_window="10:00-14:30 BDT",
             slots=[item.strftime("%H:%M") for item in _SCAN_TIMES],
             current_slot=None if due is None else due.strftime("%Y-%m-%dT%H:%M"),
-            next_slot_at=self._next_slot(current),
+            next_slot_at=self._next_slot(current) if self.enabled else None,
             last_slot=state.last_slot,
             last_started_at=state.last_started_at,
             last_completed_at=state.last_completed_at,
