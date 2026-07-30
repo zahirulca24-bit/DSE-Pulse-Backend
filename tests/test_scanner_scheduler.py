@@ -27,32 +27,48 @@ def _scheduler(
     service: FakeScannerService,
     *,
     holidays: str = "",
+    app_mode: str = "development",
 ) -> MarketScannerScheduler:
     return MarketScannerScheduler(
         settings=Settings(
+            app_mode=app_mode,
             scanner_scheduler_enabled=True,
             dse_market_holidays=holidays,
         ),
         scanner_service=service,  # type: ignore[arg-type]
-        state_repository=ScannerSchedulerStateRepository(tmp_path / "scheduler-state.json"),
+        state_repository=ScannerSchedulerStateRepository(
+            tmp_path / "scheduler-state.json"
+        ),
     )
 
 
-def test_scheduler_runs_each_market_slot_only_once_and_survives_restart(tmp_path: Path) -> None:
+def test_scheduler_runs_each_market_slot_only_once_and_survives_restart(
+    tmp_path: Path,
+) -> None:
     service = FakeScannerService()
     scheduler = _scheduler(tmp_path, service)
 
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 19, 9, 59, tzinfo=_DHAKA))) is False
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))) is True
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 19, 10, 45, tzinfo=_DHAKA))) is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 9, 59, tzinfo=_DHAKA))
+    ) is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))
+    ) is True
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 10, 45, tzinfo=_DHAKA))
+    ) is False
     assert service.calls == 1
 
     restarted_service = FakeScannerService()
     restarted = _scheduler(tmp_path, restarted_service)
-    assert asyncio.run(restarted.tick(datetime(2026, 7, 19, 10, 50, tzinfo=_DHAKA))) is False
+    assert asyncio.run(
+        restarted.tick(datetime(2026, 7, 19, 10, 50, tzinfo=_DHAKA))
+    ) is False
     assert restarted_service.calls == 0
 
-    assert asyncio.run(restarted.tick(datetime(2026, 7, 19, 11, 0, tzinfo=_DHAKA))) is True
+    assert asyncio.run(
+        restarted.tick(datetime(2026, 7, 19, 11, 0, tzinfo=_DHAKA))
+    ) is True
     assert restarted_service.calls == 1
 
     state = restarted.status(datetime(2026, 7, 19, 11, 5, tzinfo=_DHAKA))
@@ -61,13 +77,21 @@ def test_scheduler_runs_each_market_slot_only_once_and_survives_restart(tmp_path
     assert state.current_slot == "2026-07-19T11:00"
 
 
-def test_scheduler_skips_weekends_holidays_and_after_market_close(tmp_path: Path) -> None:
+def test_scheduler_skips_weekends_holidays_and_after_market_close(
+    tmp_path: Path,
+) -> None:
     service = FakeScannerService()
     scheduler = _scheduler(tmp_path, service, holidays="2026-07-19")
 
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 18, 10, 0, tzinfo=_DHAKA))) is False
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))) is False
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 20, 14, 31, tzinfo=_DHAKA))) is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 18, 10, 0, tzinfo=_DHAKA))
+    ) is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))
+    ) is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 20, 14, 31, tzinfo=_DHAKA))
+    ) is False
     assert service.calls == 0
 
 
@@ -80,5 +104,23 @@ def test_scheduler_uses_locked_hourly_slots_and_next_slot(tmp_path: Path) -> Non
     assert status.market_window == "10:00-14:30 BDT"
     assert status.next_slot_at == datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA)
 
-    assert asyncio.run(scheduler.tick(datetime(2026, 7, 19, 14, 30, tzinfo=_DHAKA))) is True
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 14, 30, tzinfo=_DHAKA))
+    ) is True
     assert service.calls == 1
+
+
+def test_scheduler_is_hard_disabled_in_production(tmp_path: Path) -> None:
+    service = FakeScannerService()
+    scheduler = _scheduler(tmp_path, service, app_mode="production")
+
+    assert scheduler.enabled is False
+    assert asyncio.run(
+        scheduler.tick(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))
+    ) is False
+
+    status = scheduler.status(datetime(2026, 7, 19, 10, 0, tzinfo=_DHAKA))
+    assert status.enabled is False
+    assert status.current_slot is None
+    assert status.next_slot_at is None
+    assert service.calls == 0

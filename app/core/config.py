@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PRODUCTION_MODES = {"production", "prod"}
+
 
 class Settings(BaseSettings):
     """Runtime settings with safe local and optional database defaults."""
@@ -34,6 +36,18 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def is_production(self) -> bool:
+        """Return whether the application is running in production mode."""
+
+        return self.app_mode.strip().lower() in _PRODUCTION_MODES
+
+    @property
+    def in_process_scheduler_enabled(self) -> bool:
+        """Allow the local scheduler only outside production Cloud Run workloads."""
+
+        return self.scanner_scheduler_enabled and not self.is_production
 
     @property
     def selected_database_url(self) -> str:
@@ -68,10 +82,13 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        """Return explicit allowed frontend origins without wildcard access."""
+        """Return explicit browser origins with no development leakage in production."""
+
+        production_origin = self.frontend_origin.strip().rstrip("/")
+        if self.is_production:
+            return [production_origin] if production_origin else []
 
         origins = ["http://localhost:3000", "http://localhost:5173"]
-        production_origin = self.frontend_origin.strip().rstrip("/")
         if production_origin and production_origin not in origins:
             origins.append(production_origin)
         return origins
