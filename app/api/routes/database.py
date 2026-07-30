@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from app.db.database import DatabaseManager
 from app.db.init_db import initialize_database
 from app.schemas.database import DatabaseInitResponse, DatabaseStatusResponse
+from app.security.admin import require_backend_admin
 from app.services.dependencies import get_database_manager
 
 router = APIRouter(prefix="/db", tags=["database"])
@@ -27,11 +28,15 @@ def get_database_status(
     )
 
 
-@router.post("/init", response_model=DatabaseInitResponse)
+@router.post(
+    "/init",
+    response_model=DatabaseInitResponse,
+    dependencies=[Depends(require_backend_admin)],
+)
 def init_database_tables(
     manager: Annotated[DatabaseManager, Depends(get_database_manager)],
 ) -> DatabaseInitResponse:
-    """Create missing tables only; never drop or truncate existing data."""
+    """Create missing tables only after backend administrator authorization."""
 
     status = manager.get_status()
     if not status.configured:
