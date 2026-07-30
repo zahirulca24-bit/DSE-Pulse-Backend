@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime settings with safe local, Vercel Blob, and optional database defaults."""
+    """Runtime settings with safe local and optional database defaults."""
 
     app_name: str = "DSE Pulse Backend"
     app_version: str = "0.1.0"
@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     collector_storage_path: Path = Path("storage/collector_jobs.json")
     scanner_scheduler_enabled: bool = False
     dse_market_holidays: str = ""
-    blob_read_write_token: str = ""
-    vercel_blob_master_pathname: str = "dse/DSE_OHLC_MASTER.csv"
     google_drive_folder_id: str = ""
     google_drive_master_filename: str = "DSE_OHLC_MASTER.csv"
     google_drive_service_account_json: str = ""
@@ -43,14 +41,8 @@ class Settings(BaseSettings):
         return self.database_url.strip() or self.supabase_database_url.strip()
 
     @property
-    def vercel_blob_configured(self) -> bool:
-        """Return whether durable Vercel Blob storage has a read-write token."""
-
-        return bool(self.blob_read_write_token.strip())
-
-    @property
     def google_drive_configured(self) -> bool:
-        """Legacy compatibility flag; Google Drive is no longer the production storage path."""
+        """Return whether legacy Google Drive compatibility is configured."""
 
         credentials = (
             self.google_drive_service_account_json.strip()

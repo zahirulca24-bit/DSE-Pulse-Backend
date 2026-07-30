@@ -1,3 +1,9 @@
+[project]
+name = "dse-pulse-backend"
+version = "0.1.0"
+description = "FastAPI backend for the DSE Pulse Bangladesh stock-market intelligence platform."
+requires-python = ">=3.11,<3.14"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

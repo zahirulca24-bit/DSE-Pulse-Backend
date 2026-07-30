@@ -1,4 +1,4 @@
-"""Manual DSE collection orchestration using Vercel Blob as canonical OHLC storage."""
+"""Manual DSE collection orchestration using the active local OHLC repository."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from zoneinfo import ZoneInfo
 from app.core.config import Settings
 from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.schemas.collector import CollectorRunResponse
-from app.services.blob_ohlc_repository import BlobOhlcRepository
 from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_source import CollectorSource, CollectorSourceError
 from app.services.csv_ingestion_service import NORMALIZED_HEADERS, CsvParseResult
+from app.services.ohlc_repository import OhlcRepository
 
 _MAX_BACKFILL_CALENDAR_DAYS = 45
 _MINIMUM_SCANNER_ROWS = 60
@@ -32,18 +32,18 @@ class CollectorConflictError(RuntimeError):
 
 
 class CollectorUnavailableError(RuntimeError):
-    """Raised when durable Blob-backed collection cannot run safely."""
+    """Raised when collection cannot persist OHLC rows safely."""
 
 
 class CollectorService:
-    """Create, execute, and inspect safe manual Blob-backed collector jobs."""
+    """Create, execute, and inspect safe manual collector jobs."""
 
     def __init__(
         self,
         *,
         settings: Settings,
         repository: CollectorJobRepository,
-        ohlc_repository: BlobOhlcRepository,
+        ohlc_repository: OhlcRepository,
         source: CollectorSource,
     ) -> None:
         self._settings = settings
@@ -62,17 +62,10 @@ class CollectorService:
             raise CollectorAuthorizationError("Collector authorization failed.")
 
     def start(self, requested_trade_date: date | None) -> CollectorRunResponse:
-        storage_status = self._ohlc_repository.blob_status()
-        if not storage_status.connected:
-            raise CollectorUnavailableError(
-                "Vercel Blob OHLC storage is unavailable. " + storage_status.message
-            )
         self._repository.fail_stale_active()
         active = self._repository.get_active()
         if active is not None:
-            raise CollectorConflictError(
-                f"Collector job {active.job_id} is already {active.status}."
-            )
+            raise CollectorConflictError(f"Collector job {active.job_id} is already {active.status}.")
 
         trade_date = requested_trade_date or self._default_trade_date()
         if trade_date > datetime.now(ZoneInfo("Asia/Dhaka")).date():
@@ -81,24 +74,12 @@ class CollectorService:
 
     def execute(self, job_id: str, collect_missing: bool = True) -> None:
         job = self._repository.get(job_id)
-        if job is None:
-            return
-        if not self._repository.mark_running(job_id):
+        if job is None or not self._repository.mark_running(job_id):
             return
 
         try:
-            storage_status = self._ohlc_repository.blob_status()
-            if not storage_status.connected:
-                raise CollectorUnavailableError(
-                    "Vercel Blob OHLC storage is unavailable. " + storage_status.message
-                )
-
-            self._ohlc_repository.sync_from_blob(force=True)
             allowed_symbols = set(PHASE1_SYMBOLS)
-            collection_dates = self._collection_dates(
-                job.requested_trade_date,
-                collect_missing,
-            )
+            collection_dates = self._collection_dates(job.requested_trade_date, collect_missing)
             requested_dates = set(collection_dates)
             batch = self._source.collect_range(
                 collection_dates[0],
@@ -107,9 +88,7 @@ class CollectorService:
             )
             all_rows = [row for row in batch.rows if row.trade_date in requested_dates]
             if not all_rows:
-                raise CollectorSourceError(
-                    "No requested trading date produced valid DSE rows."
-                )
+                raise CollectorSourceError("No requested trading date produced valid DSE rows.")
 
             parsed = CsvParseResult(
                 filename=f"collector-{job.requested_trade_date.isoformat()}.csv",
@@ -119,32 +98,23 @@ class CollectorService:
                 warnings=list(batch.warnings),
                 errors=[],
             )
-            inserted, updated, merged = self._ohlc_repository.merge_and_save_to_blob(parsed)
+            inserted, updated, merged = self._merge_and_save(parsed)
             if inserted + updated == 0:
-                raise CollectorUnavailableError(
-                    "Collector rows could not be merged into the Vercel Blob OHLC master."
-                )
+                raise CollectorUnavailableError("Collector rows could not be merged into active OHLC storage.")
 
             successful_dates = sorted({row.trade_date for row in all_rows})
             warnings = list(batch.warnings)
             warnings.insert(
                 0,
-                f"Collected {len(successful_dates)} of "
-                f"{len(collection_dates)} trading-day candidates.",
+                f"Collected {len(successful_dates)} of {len(collection_dates)} trading-day candidates.",
             )
-            warnings.append(
-                "Vercel Blob master updated and the backend local OHLC cache refreshed."
-            )
+            warnings.append("Active local OHLC storage updated successfully.")
 
-            approved_counts = Counter(
-                row.symbol for row in merged.valid_rows if row.symbol in PHASE1_SYMBOLS
-            )
-            eligible_symbols = sum(
-                count >= _MINIMUM_SCANNER_ROWS for count in approved_counts.values()
-            )
+            approved_counts = Counter(row.symbol for row in merged.valid_rows if row.symbol in PHASE1_SYMBOLS)
+            eligible_symbols = sum(count >= _MINIMUM_SCANNER_ROWS for count in approved_counts.values())
             if eligible_symbols == 0:
                 warnings.append(
-                    "Post-collection cache has no Phase-1 symbol with the minimum 60 rows required by the scanner."
+                    "Post-collection storage has no Phase-1 symbol with the minimum 60 rows required by the scanner."
                 )
 
             self._repository.mark_completed(
@@ -170,6 +140,27 @@ class CollectorService:
 
     def history(self, limit: int) -> list[CollectorRunResponse]:
         return self._repository.history(limit)
+
+    def _merge_and_save(self, uploaded: CsvParseResult) -> tuple[int, int, CsvParseResult]:
+        existing = self._ohlc_repository.read_result()
+        existing_rows = [] if existing is None or not existing.ok else existing.valid_rows
+        existing_by_key = {(row.symbol.upper(), row.trade_date): row for row in existing_rows}
+        uploaded_by_key = {(row.symbol.upper(), row.trade_date): row for row in uploaded.valid_rows}
+        updated = sum(key in existing_by_key for key in uploaded_by_key)
+        inserted = len(uploaded_by_key) - updated
+        merged_by_key = dict(existing_by_key)
+        merged_by_key.update(uploaded_by_key)
+        merged_rows = sorted(merged_by_key.values(), key=lambda row: (row.symbol.upper(), row.trade_date))
+        merged = CsvParseResult(
+            filename=uploaded.filename,
+            detected_headers=list(NORMALIZED_HEADERS),
+            valid_rows=merged_rows,
+            invalid_rows=uploaded.invalid_rows,
+            warnings=list(uploaded.warnings),
+            errors=list(uploaded.errors),
+        )
+        self._ohlc_repository.save(merged)
+        return inserted, updated, merged
 
     def _collection_dates(self, target_date: date, collect_missing: bool) -> list[date]:
         if not collect_missing:

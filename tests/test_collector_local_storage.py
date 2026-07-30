@@ -1,47 +1,15 @@
-"""Regression tests for the database-free Vercel Blob collector path."""
+"""Regression tests for the database-free local collector path."""
 
 from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
-
-import pytest
 
 from app.core.config import Settings
 from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.schemas.ohlc import OhlcRow
 from app.services.collector_job_repository import CollectorJobRepository
-from app.services.collector_service import CollectorService, CollectorUnavailableError
+from app.services.collector_service import CollectorService
 from app.services.collector_source import CollectorBatch
-from app.services.csv_ingestion_service import CsvParseResult
-from app.services.vercel_blob_client import VercelBlobStatus
-
-
-class FakeBlobRepository:
-    def __init__(self, connected: bool = True) -> None:
-        self.connected = connected
-        self.synced = False
-        self.merged_rows: list[OhlcRow] = []
-
-    def blob_status(self) -> VercelBlobStatus:
-        return VercelBlobStatus(
-            configured=self.connected,
-            connected=self.connected,
-            message="Blob ready." if self.connected else "Blob unavailable.",
-        )
-
-    def sync_from_blob(self, force: bool = False) -> bool:
-        self.synced = force
-        return self.connected
-
-    def get_status(self) -> SimpleNamespace:
-        return SimpleNamespace(latest_trade_date=date(2026, 7, 15))
-
-    def merge_and_save_to_blob(
-        self,
-        parsed: CsvParseResult,
-    ) -> tuple[int, int, CsvParseResult]:
-        self.merged_rows = list(parsed.valid_rows)
-        return len(parsed.valid_rows), 0, parsed
+from app.services.ohlc_repository import OhlcRepository
 
 
 class FakeCollectorSource:
@@ -79,22 +47,21 @@ class FakeCollectorSource:
 
 def _service(
     tmp_path: Path,
-    blob: FakeBlobRepository,
-) -> tuple[CollectorService, CollectorJobRepository, FakeCollectorSource]:
-    repository = CollectorJobRepository(tmp_path / "collector_jobs.json")
+) -> tuple[CollectorService, CollectorJobRepository, OhlcRepository, FakeCollectorSource]:
+    job_repository = CollectorJobRepository(tmp_path / "collector_jobs.json")
+    ohlc_repository = OhlcRepository(tmp_path / "dse_ohlc.csv")
     source = FakeCollectorSource()
     service = CollectorService(
         settings=Settings(collector_admin_token="secret"),
-        repository=repository,
-        ohlc_repository=blob,  # type: ignore[arg-type]
+        repository=job_repository,
+        ohlc_repository=ohlc_repository,
         source=source,
     )
-    return service, repository, source
+    return service, job_repository, ohlc_repository, source
 
 
-def test_collector_merges_daily_rows_into_blob_without_database(tmp_path: Path) -> None:
-    blob = FakeBlobRepository()
-    service, _repository, source = _service(tmp_path, blob)
+def test_collector_merges_daily_rows_into_local_storage(tmp_path: Path) -> None:
+    service, _jobs, ohlc, source = _service(tmp_path)
 
     service.authorize("secret")
     job = service.start(date(2026, 7, 16))
@@ -106,17 +73,25 @@ def test_collector_merges_daily_rows_into_blob_without_database(tmp_path: Path) 
     assert completed.inserted_rows == 1
     assert completed.updated_rows == 0
     assert completed.scanner_refresh_required is True
-    assert any("Vercel Blob master updated" in item for item in completed.warnings)
-    assert blob.synced is True
-    assert [row.symbol for row in blob.merged_rows] == ["ACI"]
+    assert any("local OHLC storage updated" in item for item in completed.warnings)
+    assert [row.symbol for row in ohlc.get_all_rows()] == ["ACI"]
     assert source.allowed_symbols == set(PHASE1_SYMBOLS)
 
 
-def test_collector_fails_closed_when_blob_is_unavailable(tmp_path: Path) -> None:
-    service, _repository, _source = _service(tmp_path, FakeBlobRepository(connected=False))
+def test_collector_upserts_existing_symbol_date(tmp_path: Path) -> None:
+    service, _jobs, ohlc, _source = _service(tmp_path)
 
-    with pytest.raises(CollectorUnavailableError, match="Vercel Blob OHLC storage is unavailable"):
-        service.start(date(2026, 7, 16))
+    first = service.start(date(2026, 7, 16))
+    service.execute(first.job_id, collect_missing=False)
+    second = service.start(date(2026, 7, 16))
+    service.execute(second.job_id, collect_missing=False)
+
+    completed = service.get(second.job_id)
+    assert completed is not None
+    assert completed.status == "completed"
+    assert completed.inserted_rows == 0
+    assert completed.updated_rows == 1
+    assert len(ohlc.get_all_rows()) == 1
 
 
 def test_collector_job_state_persists_without_database(tmp_path: Path) -> None:

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.db.init_db import initialize_database
 from app.main import app
-from app.services.dependencies import get_database_manager, get_vercel_blob_client
+from app.services.dependencies import get_database_manager
 
 
 def build_symbol_rows(
@@ -88,7 +88,6 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
         get_database_manager().dispose()
     finally:
         get_database_manager.cache_clear()
-        get_vercel_blob_client.cache_clear()
     storage_dir = tmp_path / "storage"
     ohlc_path = storage_dir / "dse_ohlc.csv"
     scanner_path = storage_dir / "scanner_latest.json"
@@ -98,15 +97,12 @@ def isolated_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterato
     monkeypatch.setenv("COLLECTOR_STORAGE_PATH", str(collector_path))
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_DATABASE_URL", raising=False)
-    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
-    monkeypatch.delenv("VERCEL_BLOB_MASTER_PATHNAME", raising=False)
     get_settings.cache_clear()
     yield ohlc_path
     try:
         get_database_manager().dispose()
     finally:
         get_database_manager.cache_clear()
-        get_vercel_blob_client.cache_clear()
         get_settings.cache_clear()
 
 
