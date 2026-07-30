@@ -43,7 +43,7 @@
 - `POST /collector/run` — queue a protected collection job
 - `GET /collector/latest` — latest collector job
 - `GET /collector/history` — collector history
-- `GET /collector/{job_id}` — one collector job
+- `GET /collector/status/{job_id}` — one collector job
 
 ## Data-source policy
 
