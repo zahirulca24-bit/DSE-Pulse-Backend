@@ -1,4 +1,4 @@
-"""Protected collector endpoint tests for the Vercel Blob production path."""
+"""Protected collector endpoint tests for the active local OHLC storage path."""
 
 from __future__ import annotations
 
@@ -13,9 +13,8 @@ from app.schemas.ohlc import OhlcRow
 from app.services.collector_job_repository import CollectorJobRepository
 from app.services.collector_service import CollectorService
 from app.services.collector_source import CollectorBatch
-from app.services.csv_ingestion_service import CsvParseResult
 from app.services.dependencies import get_collector_service
-from app.services.vercel_blob_client import VercelBlobStatus
+from app.services.ohlc_repository import OhlcRepository
 
 
 class FakeCollectorSource:
@@ -51,35 +50,12 @@ class FakeCollectorSource:
         )
 
 
-class FakeBlobRepository:
-    """Minimal connected Blob repository used by endpoint tests."""
-
-    def blob_status(self) -> VercelBlobStatus:
-        return VercelBlobStatus(
-            configured=True,
-            connected=True,
-            message="Blob ready.",
-        )
-
-    def sync_from_blob(self, force: bool = False) -> bool:
-        return force
-
-    def get_status(self) -> object:
-        return type("Status", (), {"latest_trade_date": date(2026, 6, 30)})()
-
-    def merge_and_save_to_blob(
-        self,
-        parsed: CsvParseResult,
-    ) -> tuple[int, int, CsvParseResult]:
-        return len(parsed.valid_rows), 0, parsed
-
-
 def _collector_service() -> CollectorService:
     settings = get_settings()
     return CollectorService(
         settings=settings,
         repository=CollectorJobRepository(settings.collector_storage_path),
-        ohlc_repository=FakeBlobRepository(),  # type: ignore[arg-type]
+        ohlc_repository=OhlcRepository(settings.ohlc_storage_path),
         source=FakeCollectorSource(),
     )
 
@@ -111,7 +87,7 @@ def test_collector_rejects_invalid_token(
     assert response.status_code == 403
 
 
-def test_collector_runs_in_background_and_updates_blob_master(
+def test_collector_runs_in_background_and_updates_local_master(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -141,7 +117,7 @@ def test_collector_runs_in_background_and_updates_blob_master(
     assert payload["inserted_rows"] == 1
     assert payload["updated_rows"] == 0
     assert payload["scanner_refresh_required"] is True
-    assert any("Vercel Blob master updated" in item for item in payload["warnings"])
+    assert any("local OHLC storage updated" in item for item in payload["warnings"])
     assert history.status_code == 200
     assert history.json()["count"] == 1
 
