@@ -6,7 +6,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import collector, data, database, drive, health, ohlc, scanner, scanner_run, signals, status, symbols
+from app.api.routes import (
+    collector,
+    data,
+    database,
+    drive,
+    health,
+    ohlc,
+    scanner,
+    scanner_run,
+    signals,
+    status,
+    symbols,
+)
 from app.core.config import get_settings
 from app.services.dependencies import get_market_scanner_scheduler
 
@@ -33,7 +45,12 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-Admin-Token", "X-Collector-Token"],
+    allow_headers=[
+        "Accept",
+        "Content-Type",
+        "X-Admin-Token",
+        "X-Collector-Token",
+    ],
 )
 app.include_router(health.router)
 app.include_router(status.router)
