@@ -17,7 +17,6 @@ from app.api.routes import (
     scanner_run,
     signals,
     status,
-    storage,
     symbols,
 )
 from app.core.config import get_settings
@@ -38,7 +37,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Vercel Blob backed DSE data storage, audit, OHLC, and scheduled scanner API.",
+    description="DSE data, audit, OHLC, collector, and scheduled scanner API.",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -50,7 +49,6 @@ app.add_middleware(
 )
 app.include_router(health.router)
 app.include_router(status.router)
-app.include_router(storage.router)
 app.include_router(drive.router)
 app.include_router(database.router)
 app.include_router(collector.router)
