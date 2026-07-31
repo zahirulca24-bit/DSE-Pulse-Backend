@@ -95,7 +95,7 @@ class CsvIngestionService:
         return self.parse_bytes(content, path.name)
 
     def parse_text(self, text: str, filename: str) -> CsvParseResult:
-        """Validate headers and rows, returning only normalized valid records."""
+        """Validate headers and rows, returning unique normalized records only."""
 
         try:
             reader = csv.DictReader(io.StringIO(text, newline=""))
@@ -153,6 +153,13 @@ class CsvIngestionService:
                 key = (normalized.symbol, normalized.trade_date)
                 if key in seen_keys:
                     duplicate_rows += 1
+                    invalid_rows += 1
+                    if len(errors) < _MAX_DETAIL_ERRORS:
+                        errors.append(
+                            f"Row {row_number}: duplicate symbol/trade_date was discarded."
+                        )
+                    continue
+
                 seen_keys.add(key)
                 if normalized.volume == 0:
                     zero_volume_rows += 1
@@ -168,7 +175,7 @@ class CsvIngestionService:
             )
         if duplicate_rows:
             warnings.append(
-                f"Duplicate symbol/trade_date rows detected: {duplicate_rows}."
+                f"Duplicate symbol/trade_date rows discarded: {duplicate_rows}."
             )
         if zero_volume_rows:
             warnings.append(f"Zero volume rows detected: {zero_volume_rows}.")
@@ -227,10 +234,14 @@ class CsvIngestionService:
             ("low", low_price),
             ("close", close_price),
         ):
-            if price_value < 0:
-                raise ValueError(f"{name} must not be negative.")
+            if price_value <= 0:
+                raise ValueError(f"{name} must be greater than zero.")
         if high_price < low_price:
             raise ValueError("high must not be lower than low.")
+        if not low_price <= open_price <= high_price:
+            raise ValueError("open must be inside the low/high range.")
+        if not low_price <= close_price <= high_price:
+            raise ValueError("close must be inside the low/high range.")
 
         volume_decimal = self._parse_decimal(row.get("volume"), "volume")
         if volume_decimal < 0:
