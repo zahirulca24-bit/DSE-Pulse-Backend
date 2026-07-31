@@ -2,6 +2,9 @@ substitutions:
   _REGION: asia-south1
   _SERVICE: dse-pulse-backend
   _REPOSITORY: dse-pulse
+  _CLOUD_SQL_INSTANCE: PROJECT_ID:asia-south1:dse-pulse-db
+  _RUNTIME_SERVICE_ACCOUNT: dse-pulse-runtime@PROJECT_ID.iam.gserviceaccount.com
+  _FRONTEND_ORIGIN: https://dse-plus.vercel.app
 
 steps:
   - id: build
@@ -31,7 +34,10 @@ steps:
       - --port=8080
       - --allow-unauthenticated
       - --no-cpu-throttling
-      - --update-env-vars=APP_MODE=production,SCANNER_SCHEDULER_ENABLED=false
+      - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
+      - --add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
+      - --update-secrets=DATABASE_URL=dse-pulse-database-url:latest,BACKEND_ADMIN_TOKEN=dse-pulse-backend-admin-token:latest,COLLECTOR_ADMIN_TOKEN=dse-pulse-collector-admin-token:latest
+      - --update-env-vars=APP_MODE=production,FRONTEND_ORIGIN=${_FRONTEND_ORIGIN},SCANNER_SCHEDULER_ENABLED=false,OHLC_STORAGE_PATH=/tmp/dse_ohlcv.csv,SCANNER_STORAGE_PATH=/tmp/scanner_latest.json,SCANNER_SCHEDULER_STATE_PATH=/tmp/scanner_scheduler_state.json,COLLECTOR_STORAGE_PATH=/tmp/collector_jobs.json
       - --quiet
 
 images:
