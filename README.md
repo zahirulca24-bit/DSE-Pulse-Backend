@@ -2,200 +2,166 @@
 
 **Bangladesh Stock Market Intelligence Platform**
 
-## Project Status
+DSE Pulse is a production-oriented backend for verified Dhaka Stock Exchange market data, deterministic scanning, and strict signal qualification. The project is being prepared for Google Cloud deployment with Cloud Run, Cloud SQL PostgreSQL, Secret Manager, Cloud Logging, and Cloud Scheduler.
 
-- **Project Name:** DSE Pulse
+## Current Status
+
 - **Date:** 31 July 2026
-- **Day:** Friday
-- **Time:** 2:11 AM BDT
-- **Current Phase:** Phase 1 — Repository Foundation
-- **Current Progress:** 0%
-- **Deployment Target:** Google Cloud
-- **Backend Base:** DSE Pulse Backend
-- **Frontend Base:** The Trading Desk
+- **Current phase:** Phase 4 — Scanner & Signal Engine completed
+- **Current progress:** 58%
+- **Next phase:** Phase 5 — Frontend Integration
+- **Deployment target:** Google Cloud
+- **Production scheduler rule:** no in-process scheduler in production
+- **Data policy:** verified DSE data only; no mock, demo, or synthetic market data
 
-## Final Architecture
+> Release gate: the legacy `scanner_candidates` database schema migration must be merged and verified before Phase 5 begins.
+
+## Target Architecture
 
 ```text
-User
-  │
-  ▼
 DSE Pulse Frontend — Google Cloud Run
-  │
-  ▼
+              │
+              ▼
 DSE Pulse Backend — Google Cloud Run
-  │
-  ├── PostgreSQL — Google Cloud SQL
-  ├── Secret Manager
-  ├── Cloud Logging
-  └── Cloud Scheduler
-          ├── Market data collection
-          └── Scanner execution
+              │
+              ├── Google Cloud SQL — PostgreSQL
+              ├── Secret Manager
+              ├── Cloud Logging
+              └── Cloud Scheduler
+                    ├── Market-data collection
+                    └── Scanner execution
 ```
 
-## Core Rules
+## Implemented Capabilities
 
-- Real DSE market data only
-- No mock market data or fake signals
-- Closed-candle-only calculations
-- One phase must be completed and verified before the next phase starts
-- Administrative write endpoints must be authenticated
-- Scanner runs must be protected against duplicate execution
-- Production secrets must not be stored in source control
+### Repository and security foundation
+
+- standardized FastAPI repository structure
+- environment-based configuration
+- production CORS allowlist
+- authenticated administrative write endpoints
+- health, readiness, and database status contracts
+- rollback-safe database sessions
+- production in-process scheduler disabled
+
+### Verified market-data pipeline
+
+- strict CSV validation
+- positive OHLC price enforcement
+- open and close validation inside daily high-low range
+- deterministic duplicate handling for `(symbol, trade_date)`
+- atomic local CSV merge and replacement
+- database-first source selection only when verified rows exist
+- verified local CSV fallback
+- fail-closed `none` source when no verified dataset exists
+- no demo-data fallback
+
+### Scanner and signal engine
+
+- minimum 60 verified OHLC rows per eligible symbol
+- approved Phase-1 universe filtering
+- deterministic EMA, SMA, RSI, volume, setup, and trend calculations
+- strict qualification hard gates
+- setup-aware risk/reward calculation
+- zero-eligible scans fail closed and are not persisted
+- latest valid scanner result remains available after an unusable scan
+- scanner candidate persistence with duplicate-symbol protection
+
+## Signal Grading Rules
+
+| Grade | Score | Public status |
+|---|---:|---|
+| A+ | 95–100 | Qualified only when every hard gate passes |
+| A | 90–94 | Qualified only when every hard gate passes |
+| B+ | 85–89 | Watch only |
+| Reject | Below 85 | Rejected |
+
+A high score alone is not enough. A+/A candidates must also pass:
+
+- bullish trend confirmation
+- valid production setup
+- positive latest volume
+- volume ratio of at least `1.5`
+- risk/reward of at least `1.5`
+- entry distance within the configured maximum
+
+## Market-Data Safety Rules
+
+- real and verified DSE data only
+- no mock, demo, synthetic, or silently generated market data
+- invalid rows are rejected instead of repaired with fabricated values
+- duplicate rows are handled deterministically
+- empty database tables are not considered usable data sources
+- source selection is consistent across status, symbol, and OHLC routes
+- failed scanner runs do not replace the latest valid result
+
+## Main API Areas
+
+- health and readiness
+- database status and initialization
+- market-data source status
+- symbols and OHLC retrieval
+- CSV import and data audit
+- collector status and execution
+- scanner status, execution, and latest candidates
+- public signal-rule metadata
+
+Interactive API documentation is available at `/docs` when the application is running.
+
+## Local Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload
+```
+
+Windows PowerShell activation:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Run quality checks:
+
+```bash
+ruff check .
+ruff format --check .
+mypy app
+pytest
+```
+
+Environment variable names and production requirements are documented in `.env.example` and the files under `docs/`.
 
 ## Development Roadmap
 
-### Phase 1 — Repository Foundation
-**Progress target: 0% → 10%**
+| Phase | Scope | Progress |
+|---|---|---:|
+| 1 | Repository Foundation | 10% complete |
+| 2 | Backend Security & Stability | 25% complete |
+| 3 | Market Data Pipeline | 40% complete |
+| 4 | Scanner & Signal Engine | 58% complete |
+| 5 | Frontend Integration | 58% → 75% |
+| 6 | Testing & Verification | 75% → 86% |
+| 7 | Google Cloud Preparation | 86% → 94% |
+| 8 | Google Cloud Deployment | 94% → 98% |
+| 9 | Production Audit | 98% → 100% |
 
-- Create the final clean repository structure
-- Separate `frontend/` and `backend/`
-- Remove nested, duplicate and obsolete files
-- Standardize local and production environment configuration
-- Lock branch, commit and pull-request workflow
-- Prepare production-grade project documentation
+## Immediate Next Work
 
-**Deliverable:** Clean and runnable DSE Pulse repository
+1. Merge and verify the legacy scanner schema migration.
+2. Lock the frontend-facing API contract.
+3. Begin Phase 5 frontend integration for Dashboard, Scanner, Signal Board, Stock Detail, Data Status, and Admin Import.
+4. Keep frontend data strictly connected to verified backend responses; no mock UI data.
 
-### Phase 2 — Backend Security and Stability
-**Progress target: 10% → 25%**
+## Production Principles
 
-- Protect scanner, database and import write endpoints
-- Add admin authentication and authorization
-- Configure production CORS allowlist
-- Add centralized error handling
-- Add health and readiness endpoints
-- Add duplicate scanner-run lock and idempotency protection
-- Fix dependency and test collection failures
-
-**Deliverable:** Secure and stable backend foundation
-
-### Phase 3 — Market Data Pipeline
-**Progress target: 25% → 40%**
-
-- Implement reliable DSE OHLCV import
-- Reject invalid OHLC records
-- Prevent duplicate `(symbol, trade_date)` rows
-- Detect missing dates and stale datasets
-- Track the latest verified trading date
-- Store import logs and audit history
-- Migrate persistence to PostgreSQL
-
-**Deliverable:** Verified real-data pipeline
-
-### Phase 4 — Scanner and Signal Engine
-**Progress target: 40% → 58%**
-
-- Use closed-candle-only calculations
-- Add trend confirmation
-- Add liquidity and turnover filters
-- Add volume confirmation
-- Add ATR-based stop-loss
-- Generate entry zone, TP1 and TP2
-- Enforce strict risk-reward validation
-- Add market-regime and sector-strength filters
-- Apply A+ / A / B+ / Reject grading
-- Return exact rejection reasons
-
-**Deliverable:** Production-grade DSE signal engine
-
-### Phase 5 — Frontend Integration
-**Progress target: 58% → 75%**
-
-- Dashboard
-- Scanner
-- Signal Board
-- Stock Detail
-- Chart Lab
-- Watchlist
-- Portfolio
-- Paper Trading
-- Journal
-- Data Status
-- Admin Import
-
-**Deliverable:** Complete DSE Pulse web application connected to real backend data
-
-### Phase 6 — Testing and Verification
-**Progress target: 75% → 86%**
-
-- Backend unit tests
-- API integration tests
-- Authentication tests
-- Signal grading tests
-- Stale-data tests
-- Duplicate-run tests
-- Frontend build verification
-- Docker build verification
-- Scanner output validation
-
-**Deliverable:** Verified release candidate
-
-### Phase 7 — Google Cloud Preparation
-**Progress target: 86% → 94%**
-
-- Backend Dockerfile
-- Frontend Dockerfile
-- Cloud Run `$PORT` support
-- Cloud SQL configuration
-- Secret Manager mapping
-- Cloud Scheduler endpoints
-- Database migration command
-- Production logging
-- Cloud Build or GitHub Actions deployment workflow
-
-**Deliverable:** Google Cloud-ready application
-
-### Phase 8 — Google Cloud Deployment
-**Progress target: 94% → 98%**
-
-Deploy:
-
-- `dse-pulse-frontend`
-- `dse-pulse-backend`
-- Cloud SQL PostgreSQL
-- Secret Manager
-- Cloud Scheduler
-- Cloud Logging
-
-**Deliverable:** Live DSE Pulse deployment
-
-### Phase 9 — Production Audit
-**Progress target: 98% → 100%**
-
-- Verify frontend and backend connectivity
-- Verify database persistence
-- Verify scanner schedule and authentication
-- Verify CORS and admin access control
-- Verify real-data import and signal generation
-- Verify restart recovery
-- Review logs and error monitoring
-- Check desktop and mobile interfaces
-
-**Deliverable:** Production-approved DSE Pulse v1.0
-
-## Required Work Order
-
-```text
-Repository Foundation
-        ↓
-Backend Security
-        ↓
-Market Data Pipeline
-        ↓
-Scanner and Signal Engine
-        ↓
-Frontend Integration
-        ↓
-Automated Testing
-        ↓
-Google Cloud Preparation
-        ↓
-Deployment
-        ↓
-Production Audit
-```
-
-## Immediate Next Task
-
-Start **Phase 1 — Repository Foundation** using DSE Pulse Backend as the backend base. The Trading Desk frontend will be migrated only after the backend structure and security baseline are verified.
+- branch, commit, pull-request, CI, then merge
+- one verified batch at a time
+- administrative writes require authentication
+- production secrets never enter source control
+- Cloud Scheduler triggers production jobs
+- Cloud Run instances do not run an internal scheduler
+- no deployment claim is made until build, migration, connectivity, and persistence are verified
