@@ -36,9 +36,13 @@ class DatabaseImportResponse(BaseModel):
 
 
 class DataSourceResponse(BaseModel):
+    """Fail-closed active market-data source selection."""
+
     model_config = ConfigDict(extra="forbid")
 
-    preferred_source: Literal["database", "local_csv", "demo"]
+    preferred_source: Literal["database", "local_csv", "none"]
     database_available: bool
     local_csv_available: bool
-    fallback_order: list[Literal["database", "local_csv", "demo"]]
+    market_data_available: bool
+    fallback_order: list[Literal["database", "local_csv"]]
+    message: str
