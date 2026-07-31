@@ -102,7 +102,7 @@ class DatabaseManager:
 
     @contextmanager
     def session(self) -> Iterator[Session]:
-        """Yield a transaction-capable session for a configured engine."""
+        """Yield a session and roll back any failed transaction before closing."""
 
         engine = self.engine
         if engine is None:
@@ -110,6 +110,9 @@ class DatabaseManager:
         session = Session(engine)
         try:
             yield session
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
