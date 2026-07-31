@@ -23,7 +23,7 @@ def get_symbol_ohlc(
     end_date: Annotated[date | None, Query()] = None,
     source: Annotated[Literal["auto", "database", "local_csv"], Query()] = "auto",
 ) -> OhlcResponse:
-    """Use database first in auto mode, or honor an explicit safe source."""
+    """Use verified database rows first in auto mode, or honor an explicit source."""
 
     if source == "database":
         if not database_repository.is_available():
@@ -34,6 +34,6 @@ def get_symbol_ohlc(
         return database_repository.get_ohlc(symbol, limit, start_date, end_date)
     if source == "local_csv":
         return local_repository.get_ohlc(symbol, limit, start_date, end_date)
-    if database_repository.is_available():
+    if database_repository.get_status().data_available:
         return database_repository.get_ohlc(symbol, limit, start_date, end_date)
     return local_repository.get_ohlc(symbol, limit, start_date, end_date)
