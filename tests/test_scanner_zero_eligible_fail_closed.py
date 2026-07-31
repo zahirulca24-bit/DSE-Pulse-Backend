@@ -11,12 +11,12 @@ class _Cache:
     def get_all_rows(self) -> list[OhlcRow]:
         return [
             OhlcRow(
-                symbol="GP",
+                symbol="BRACBANK",
                 trade_date=date(2026, 7, 30),
-                open=280,
-                high=286,
-                low=278,
-                close=284.5,
+                open=48.0,
+                high=49.0,
+                low=47.5,
+                close=48.5,
                 volume=510000,
             )
         ]
@@ -64,7 +64,7 @@ def test_zero_eligible_scan_fails_closed_and_is_not_persisted() -> None:
     assert result.eligible_symbols == 0
     assert result.generated_at is None
     assert result.candidates == []
-    assert "failed closed" in result.message.lower()
+    assert "minimum 60 ohlc rows" in result.message.lower()
     assert repository.saved is False
 
 
