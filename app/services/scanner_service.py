@@ -104,5 +104,17 @@ class ScannerService:
             f"{out_of_scope_count} out-of-scope symbol(s) were excluded fail-closed. "
             + result.message
         )
+
+        if result.eligible_symbols == 0:
+            result.ok = False
+            result.generated_at = None
+            result.candidates = []
+            result.message = (
+                "Scanner execution failed closed because no approved symbol had the "
+                "minimum 60 verified OHLC rows. "
+                + result.message
+            )
+            return result
+
         self._scanner_repository.save(result)
         return result
