@@ -1,4 +1,4 @@
-"""Symbol list route with database-first fallback."""
+"""Symbol list route with verified database-first fallback."""
 
 from typing import Annotated
 
@@ -17,8 +17,8 @@ def get_symbols(
     database_repository: Annotated[OhlcDbRepository, Depends(get_ohlc_db_repository)],
     local_repository: Annotated[OhlcRepository, Depends(get_ohlc_repository)],
 ) -> SymbolsResponse:
-    """Return database symbols when its table is available, otherwise local symbols."""
+    """Return database symbols only when verified rows exist, else local symbols."""
 
-    if database_repository.is_available():
+    if database_repository.get_status().data_available:
         return database_repository.get_symbols()
     return local_repository.get_symbols()
