@@ -29,9 +29,9 @@ def test_app_and_health_start_without_database(client: TestClient) -> None:
 
 
 def test_database_init_safe_error_when_not_configured(client: TestClient) -> None:
-    payload = client.post("/db/init").json()
-    assert payload["ok"] is False
-    assert payload["message"] == "DATABASE_URL is not configured."
+    response = client.post("/db/init")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "DATABASE_URL is not configured."}
 
 
 def test_database_init_is_idempotent(database_client: TestClient) -> None:
