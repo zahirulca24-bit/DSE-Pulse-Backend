@@ -3,7 +3,7 @@
 from app.services.scanner_engine import ScannerEngine
 
 
-def test_breakout_risk_reward_uses_projected_range_target() -> None:
+def test_early_breakout_can_clear_qualified_risk_reward_gate() -> None:
     risk_reward = ScannerEngine._risk_reward(
         setup="20-Day Breakout",
         close=111.0,
@@ -12,16 +12,16 @@ def test_breakout_risk_reward_uses_projected_range_target() -> None:
         prior_high20=110.0,
     )
 
-    assert risk_reward == 19.0 / 21.0
-    assert risk_reward > 0
+    assert risk_reward == 39.0 / 21.0
+    assert risk_reward >= 1.5
 
 
 def test_breakout_risk_reward_fails_closed_after_exhausting_projection() -> None:
     risk_reward = ScannerEngine._risk_reward(
         setup="20-Day Breakout",
-        close=131.0,
+        close=151.0,
         support=90.0,
-        resistance=132.0,
+        resistance=152.0,
         prior_high20=110.0,
     )
 
