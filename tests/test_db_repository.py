@@ -59,10 +59,13 @@ def test_import_db_upserts_and_database_reads(database_client: TestClient) -> No
     assert status["rows_count"] == 4
 
 
-def test_database_source_endpoint(database_client: TestClient) -> None:
+def test_empty_database_source_endpoint_fails_closed(
+    database_client: TestClient,
+) -> None:
     payload = database_client.get("/data/source").json()
-    assert payload["preferred_source"] == "database"
-    assert payload["database_available"] is True
-    assert payload["market_data_available"] is True
-    assert payload["fallback_order"] == ["database"]
+    assert payload["preferred_source"] == "none"
+    assert payload["database_available"] is False
+    assert payload["local_csv_available"] is False
+    assert payload["market_data_available"] is False
+    assert payload["fallback_order"] == []
     assert "demo" not in payload["fallback_order"]
