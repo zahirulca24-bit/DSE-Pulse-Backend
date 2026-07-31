@@ -25,7 +25,7 @@ def initialize_database(manager: DatabaseManager) -> bool:
         Base.metadata.create_all(bind=engine)
         with engine.begin() as connection:
             _upgrade_scanner_candidates(connection)
-    except SQLAlchemyError:
+    except (SQLAlchemyError, RuntimeError):
         return False
     return True
 
