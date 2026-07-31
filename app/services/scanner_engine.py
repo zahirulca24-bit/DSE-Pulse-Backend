@@ -70,7 +70,13 @@ class ScannerEngine:
         indicators = self._indicators.calculate(rows)
         trend = self._trend(latest.close, indicators)
         setup = self._setup(latest.close, indicators, trend)
-        risk_reward = self._risk_reward(latest.close, indicators.low20, indicators.high20)
+        risk_reward = self._risk_reward(
+            setup=setup,
+            close=latest.close,
+            support=indicators.low20,
+            resistance=indicators.high20,
+            prior_high20=indicators.prior_high20,
+        )
         score, reasons = self._score(latest.close, latest.volume, indicators, setup, risk_reward)
         grade, _raw_status = classify_score(score)
         decision = evaluate_qualification(
@@ -146,9 +152,21 @@ class ScannerEngine:
         return "Rejected / No Setup"
 
     @staticmethod
-    def _risk_reward(close: float, support: float, resistance: float) -> float:
+    def _risk_reward(
+        *,
+        setup: SetupType,
+        close: float,
+        support: float,
+        resistance: float,
+        prior_high20: float,
+    ) -> float:
         risk = close - support
-        reward = resistance - close
+        if setup == "20-Day Breakout":
+            prior_range = prior_high20 - support
+            projected_target = prior_high20 + prior_range
+            reward = projected_target - close
+        else:
+            reward = resistance - close
         if risk <= 0 or reward <= 0:
             return 0.0
         return reward / risk
