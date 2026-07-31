@@ -29,7 +29,7 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --port=8080
-      - --no-allow-unauthenticated
+      - --allow-unauthenticated
       - --set-env-vars=APP_MODE=production,SCANNER_SCHEDULER_ENABLED=false
       - --quiet
 
