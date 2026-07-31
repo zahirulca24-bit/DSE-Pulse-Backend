@@ -64,7 +64,7 @@ def test_zero_eligible_scan_fails_closed_and_is_not_persisted() -> None:
     assert result.eligible_symbols == 0
     assert result.generated_at is None
     assert result.candidates == []
-    assert "minimum 60 ohlc rows" in result.message.lower()
+    assert "minimum 60 verified ohlc rows" in result.message.lower()
     assert repository.saved is False
 
 
