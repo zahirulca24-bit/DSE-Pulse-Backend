@@ -9,14 +9,14 @@ steps:
     args:
       - build
       - --tag
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
       - .
 
   - id: push
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -25,16 +25,17 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
       - --region=${_REGION}
       - --platform=managed
       - --port=8080
       - --allow-unauthenticated
-      - --set-env-vars=APP_MODE=production,SCANNER_SCHEDULER_ENABLED=false
+      - --no-cpu-throttling
+      - --update-env-vars=APP_MODE=production,SCANNER_SCHEDULER_ENABLED=false
       - --quiet
 
 images:
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
 
 options:
   logging: CLOUD_LOGGING_ONLY
