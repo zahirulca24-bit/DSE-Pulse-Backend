@@ -50,15 +50,10 @@ class OhlcDaily(Base):
     trade: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
     value: Mapped[Decimal | None] = mapped_column(Numeric(24, 6), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -78,9 +73,7 @@ class ScannerRun(Base):
     rejected_count: Mapped[int] = mapped_column(Integer, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
@@ -88,13 +81,14 @@ class ScannerCandidateRecord(Base):
     """A final candidate linked to one scanner run."""
 
     __tablename__ = "scanner_candidates"
-    __table_args__ = (Index("ix_scanner_candidates_run_id", "run_id"),)
+    __table_args__ = (
+        UniqueConstraint("run_id", "symbol", name="uq_scanner_candidates_run_symbol"),
+        Index("ix_scanner_candidates_run_id", "run_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("scanner_runs.run_id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("scanner_runs.run_id", ondelete="CASCADE"), nullable=False
     )
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -114,19 +108,25 @@ class ScannerCandidateRecord(Base):
     rsi14: Mapped[float] = mapped_column(Float, nullable=False)
     volume_ratio: Mapped[float] = mapped_column(Float, nullable=False)
     risk_reward: Mapped[float] = mapped_column(Float, nullable=False)
+    qualification_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    qualification_failures_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    entry_distance_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     reasons_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     warnings_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     data_mode: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     def safe_text_fields(self) -> tuple[str, ...]:
         """Return textual fields useful for safety-oriented tests."""
 
-        values: list[Any] = [self.setup, *self.reasons_json, *self.warnings_json]
+        values: list[Any] = [
+            self.setup,
+            *self.qualification_failures_json,
+            *self.reasons_json,
+            *self.warnings_json,
+        ]
         return tuple(str(value) for value in values)
 
 
@@ -154,9 +154,7 @@ class CollectorRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     scanner_refresh_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

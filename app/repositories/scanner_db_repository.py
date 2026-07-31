@@ -25,6 +25,14 @@ class ScannerDbRepository:
         if not self.is_available() or result.generated_at is None:
             return False
         run_id = str(uuid4())
+        seen_symbols: set[str] = set()
+        candidates: list[ScannerCandidate] = []
+        for candidate in result.candidates[:50]:
+            normalized_symbol = candidate.symbol.strip().upper()
+            if normalized_symbol in seen_symbols:
+                continue
+            seen_symbols.add(normalized_symbol)
+            candidates.append(candidate.model_copy(update={"symbol": normalized_symbol}))
         try:
             with self._manager.session() as session:
                 session.add(
@@ -40,7 +48,7 @@ class ScannerDbRepository:
                         generated_at=result.generated_at,
                     )
                 )
-                for candidate in result.candidates[:50]:
+                for candidate in candidates:
                     session.add(
                         ScannerCandidateRecord(
                             run_id=run_id,
@@ -62,6 +70,9 @@ class ScannerDbRepository:
                             rsi14=candidate.rsi14,
                             volume_ratio=candidate.volume_ratio,
                             risk_reward=candidate.risk_reward,
+                            qualification_passed=candidate.qualification_passed,
+                            qualification_failures_json=candidate.qualification_failures,
+                            entry_distance_percent=candidate.entry_distance_percent,
                             reasons_json=candidate.reasons,
                             warnings_json=candidate.warnings,
                             data_mode="Database",
@@ -95,7 +106,7 @@ class ScannerDbRepository:
         candidates = [
             ScannerCandidate(
                 symbol=record.symbol,
-                company=None,
+                company=record.company,
                 sector=record.sector,
                 grade=record.grade,
                 score=record.score,
@@ -112,6 +123,9 @@ class ScannerDbRepository:
                 rsi14=record.rsi14,
                 volume_ratio=record.volume_ratio,
                 risk_reward=record.risk_reward,
+                qualification_passed=record.qualification_passed,
+                qualification_failures=list(record.qualification_failures_json),
+                entry_distance_percent=record.entry_distance_percent,
                 reasons=list(record.reasons_json),
                 warnings=list(record.warnings_json),
                 data_mode="Database",
