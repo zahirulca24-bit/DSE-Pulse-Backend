@@ -63,4 +63,6 @@ def test_database_source_endpoint(database_client: TestClient) -> None:
     payload = database_client.get("/data/source").json()
     assert payload["preferred_source"] == "database"
     assert payload["database_available"] is True
-    assert payload["fallback_order"] == ["database", "local_csv", "demo"]
+    assert payload["market_data_available"] is True
+    assert payload["fallback_order"] == ["database"]
+    assert "demo" not in payload["fallback_order"]

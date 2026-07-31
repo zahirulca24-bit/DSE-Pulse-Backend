@@ -221,17 +221,27 @@ def get_data_source(
 ) -> DataSourceResponse:
     database_available = database_repository.is_available()
     local_available = local_repository.get_status().data_available
+
     if database_available:
-        preferred, fallback = "database", ["database", "local_csv", "demo"]
+        preferred = "database"
+        fallback = ["database", "local_csv"] if local_available else ["database"]
+        message = "Database OHLC data is active."
     elif local_available:
-        preferred, fallback = "local_csv", ["local_csv", "demo"]
+        preferred = "local_csv"
+        fallback = ["local_csv"]
+        message = "Local CSV OHLC data is active."
     else:
-        preferred, fallback = "demo", ["demo"]
+        preferred = "none"
+        fallback = []
+        message = "No verified DSE market-data source is available."
+
     return DataSourceResponse(
         preferred_source=preferred,
         database_available=database_available,
         local_csv_available=local_available,
+        market_data_available=database_available or local_available,
         fallback_order=fallback,
+        message=message,
     )
 
 
