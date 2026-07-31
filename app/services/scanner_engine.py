@@ -163,7 +163,7 @@ class ScannerEngine:
         risk = close - support
         if setup == "20-Day Breakout":
             prior_range = prior_high20 - support
-            projected_target = prior_high20 + prior_range
+            projected_target = prior_high20 + (2 * prior_range)
             reward = projected_target - close
         else:
             reward = resistance - close
