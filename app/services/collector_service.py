@@ -65,7 +65,9 @@ class CollectorService:
         self._repository.fail_stale_active()
         active = self._repository.get_active()
         if active is not None:
-            raise CollectorConflictError(f"Collector job {active.job_id} is already {active.status}.")
+            raise CollectorConflictError(
+                f"Collector job {active.job_id} is already {active.status}."
+            )
 
         trade_date = requested_trade_date or self._default_trade_date()
         if trade_date > datetime.now(ZoneInfo("Asia/Dhaka")).date():
@@ -79,39 +81,66 @@ class CollectorService:
 
         try:
             allowed_symbols = set(PHASE1_SYMBOLS)
-            collection_dates = self._collection_dates(job.requested_trade_date, collect_missing)
+            collection_dates = self._collection_dates(
+                job.requested_trade_date,
+                collect_missing,
+            )
             requested_dates = set(collection_dates)
             batch = self._source.collect_range(
                 collection_dates[0],
                 collection_dates[-1],
                 allowed_symbols,
             )
-            all_rows = [row for row in batch.rows if row.trade_date in requested_dates]
+            all_rows = [
+                row for row in batch.rows if row.trade_date in requested_dates
+            ]
             if not all_rows:
-                raise CollectorSourceError("No requested trading date produced valid DSE rows.")
+                raise CollectorSourceError(
+                    "No requested trading date produced valid DSE rows."
+                )
 
             parsed = CsvParseResult(
-                filename=f"collector-{job.requested_trade_date.isoformat()}.csv",
+                filename=(
+                    f"collector-{job.requested_trade_date.isoformat()}.csv"
+                ),
                 detected_headers=list(NORMALIZED_HEADERS),
                 valid_rows=all_rows,
                 invalid_rows=batch.invalid_rows,
                 warnings=list(batch.warnings),
                 errors=[],
             )
-            inserted, updated, merged = self._merge_and_save(parsed)
+            inserted, updated, merged = self._ohlc_repository.merge_and_save(
+                parsed
+            )
             if inserted + updated == 0:
-                raise CollectorUnavailableError("Collector rows could not be merged into active OHLC storage.")
+                raise CollectorUnavailableError(
+                    "Collector rows could not be merged into active OHLC storage."
+                )
 
-            successful_dates = sorted({row.trade_date for row in all_rows})
+            successful_dates = sorted(
+                {row.trade_date for row in all_rows}
+            )
             warnings = list(batch.warnings)
             warnings.insert(
                 0,
-                f"Collected {len(successful_dates)} of {len(collection_dates)} trading-day candidates.",
+                (
+                    f"Collected {len(successful_dates)} of "
+                    f"{len(collection_dates)} trading-day candidates."
+                ),
             )
-            warnings.append("Active local OHLC storage updated successfully.")
+            warnings.append(
+                "Active local OHLC storage updated successfully."
+            )
 
-            approved_counts = Counter(row.symbol for row in merged.valid_rows if row.symbol in PHASE1_SYMBOLS)
-            eligible_symbols = sum(count >= _MINIMUM_SCANNER_ROWS for count in approved_counts.values())
+            approved_counts = Counter(
+                row.symbol
+                for row in merged.valid_rows
+                if row.symbol in PHASE1_SYMBOLS
+            )
+            eligible_symbols = sum(
+                count >= _MINIMUM_SCANNER_ROWS
+                for count in approved_counts.values()
+            )
             if eligible_symbols == 0:
                 warnings.append(
                     "Post-collection storage has no Phase-1 symbol with the minimum 60 rows required by the scanner."
@@ -141,28 +170,11 @@ class CollectorService:
     def history(self, limit: int) -> list[CollectorRunResponse]:
         return self._repository.history(limit)
 
-    def _merge_and_save(self, uploaded: CsvParseResult) -> tuple[int, int, CsvParseResult]:
-        existing = self._ohlc_repository.read_result()
-        existing_rows = [] if existing is None or not existing.ok else existing.valid_rows
-        existing_by_key = {(row.symbol.upper(), row.trade_date): row for row in existing_rows}
-        uploaded_by_key = {(row.symbol.upper(), row.trade_date): row for row in uploaded.valid_rows}
-        updated = sum(key in existing_by_key for key in uploaded_by_key)
-        inserted = len(uploaded_by_key) - updated
-        merged_by_key = dict(existing_by_key)
-        merged_by_key.update(uploaded_by_key)
-        merged_rows = sorted(merged_by_key.values(), key=lambda row: (row.symbol.upper(), row.trade_date))
-        merged = CsvParseResult(
-            filename=uploaded.filename,
-            detected_headers=list(NORMALIZED_HEADERS),
-            valid_rows=merged_rows,
-            invalid_rows=uploaded.invalid_rows,
-            warnings=list(uploaded.warnings),
-            errors=list(uploaded.errors),
-        )
-        self._ohlc_repository.save(merged)
-        return inserted, updated, merged
-
-    def _collection_dates(self, target_date: date, collect_missing: bool) -> list[date]:
+    def _collection_dates(
+        self,
+        target_date: date,
+        collect_missing: bool,
+    ) -> list[date]:
         if not collect_missing:
             return [target_date]
         status = self._ohlc_repository.get_status()
