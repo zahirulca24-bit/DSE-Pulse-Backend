@@ -219,7 +219,8 @@ def get_data_source(
         Depends(get_ohlc_repository),
     ],
 ) -> DataSourceResponse:
-    database_available = database_repository.is_available()
+    database_status = database_repository.get_status()
+    database_available = database_status.data_available
     local_available = local_repository.get_status().data_available
 
     if database_available:
