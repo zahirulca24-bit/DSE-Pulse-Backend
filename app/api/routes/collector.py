@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.schemas.collector import (
     CollectorHistoryResponse,
@@ -24,55 +24,26 @@ router = APIRouter(prefix="/collector", tags=["collector"])
 
 @router.post(
     "/run",
-    response_model=CollectorStatusResponse | CollectorRunResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    response_model=CollectorStatusResponse,
     dependencies=[Depends(require_backend_admin)],
 )
 def run_collector(
     request: CollectorRunRequest,
-    background_tasks: BackgroundTasks,
     service: Annotated[
         ProductionCollectorService,
         Depends(get_production_collector_service),
     ],
-    legacy_service: Annotated[CollectorService, Depends(get_collector_service)],
-    collector_token: Annotated[str | None, Header(alias="X-Collector-Token")] = None,
-) -> CollectorStatusResponse | CollectorRunResponse:
+) -> CollectorStatusResponse:
     """Run the configured verified production collector once."""
 
     try:
         return service.run(request.trade_date)
-    except ProductionCollectorDatabaseError:
-        return _run_legacy_collector(request, background_tasks, legacy_service, collector_token)
+    except ProductionCollectorDatabaseError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except ProductionCollectorUnavailableError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-
-
-def _run_legacy_collector(
-    request: CollectorRunRequest,
-    background_tasks: BackgroundTasks,
-    service: CollectorService,
-    collector_token: str | None,
-) -> CollectorRunResponse:
-    from app.services.collector_service import (
-        CollectorAuthorizationError,
-        CollectorDisabledError,
-    )
-
-    try:
-        service.authorize(collector_token)
-        job = service.start(request.trade_date)
-    except CollectorDisabledError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    except CollectorAuthorizationError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-
-    background_tasks.add_task(service.execute, job.job_id, request.collect_missing)
-    return job
 
 
 @router.get("/status", response_model=CollectorStatusResponse)

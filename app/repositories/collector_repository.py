@@ -199,8 +199,11 @@ class CollectorRepository:
         )
 
 
-class CollectorDbRepository(CollectorRepository):
+class CollectorDbRepository:
     """Persist production collector state in the configured SQL database."""
+
+    def __init__(self, manager: DatabaseManager) -> None:
+        self._manager = manager
 
     def is_available(self) -> bool:
         return self._manager.has_tables(("collector_state", "collector_runs", "ohlc_daily"))
@@ -276,7 +279,7 @@ class CollectorDbRepository(CollectorRepository):
             state.rejected_rows = rejected_rows
             session.commit()
 
-    def mark_failed(self, source: str | None, message: str) -> None:  # type: ignore[override]
+    def mark_failed(self, source: str | None, message: str) -> None:
         with self._manager.session() as session:
             state = session.get(CollectorState, 1)
             if state is None:
