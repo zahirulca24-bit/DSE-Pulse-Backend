@@ -38,6 +38,7 @@ class CsvParseResult:
     invalid_rows: int
     warnings: list[str]
     errors: list[str]
+    duplicate_rows: int = 0
     fatal_error: bool = False
 
     @property
@@ -198,6 +199,7 @@ class CsvIngestionService:
             invalid_rows=invalid_rows,
             warnings=warnings,
             errors=errors,
+            duplicate_rows=duplicate_rows,
         )
 
     @staticmethod

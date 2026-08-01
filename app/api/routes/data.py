@@ -11,6 +11,7 @@ from app.schemas.data import (
     DataImportResponse,
     DataPreviewResponse,
     DataStatusResponse,
+    ProductionDataImportResponse,
     StaleSymbolsResponse,
 )
 from app.schemas.database import DatabaseImportResponse, DataSourceResponse
@@ -30,6 +31,75 @@ from app.services.scanner_repository import ScannerRepository
 
 router = APIRouter(prefix="/data", tags=["data"])
 _admin = [Depends(require_backend_admin)]
+
+
+@router.post(
+    "/import",
+    response_model=ProductionDataImportResponse,
+    dependencies=_admin,
+)
+async def import_database_csv(
+    file: Annotated[UploadFile, File()],
+    ingestion_service: Annotated[
+        CsvIngestionService,
+        Depends(get_csv_ingestion_service),
+    ],
+    database_manager: Annotated[
+        DatabaseManager,
+        Depends(get_database_manager),
+    ],
+    database_repository: Annotated[
+        OhlcDbRepository,
+        Depends(get_ohlc_db_repository),
+    ],
+) -> ProductionDataImportResponse:
+    connection = database_manager.get_status()
+    if not connection.configured:
+        return _production_import_error("DATABASE_URL is not configured.")
+    if not connection.connected:
+        return _production_import_error("Database connection is unavailable.")
+    if not database_repository.is_available():
+        return _production_import_error(
+            "Database tables are unavailable. Run POST /db/init first."
+        )
+
+    result = ingestion_service.parse_bytes(
+        await file.read(),
+        file.filename or "uploaded.csv",
+    )
+    if not result.ok:
+        return ProductionDataImportResponse(
+            ok=False,
+            data_source="database",
+            inserted=0,
+            updated=0,
+            rejected=result.invalid_rows,
+            duplicate=result.duplicate_rows,
+            symbols_count=result.symbols_count,
+            latest_trade_date=result.latest_trade_date,
+            message="DSE OHLC CSV was not imported into database.",
+            warnings=result.warnings,
+            errors=result.errors,
+        )
+
+    inserted, updated = database_repository.upsert(result.valid_rows)
+    if inserted + updated == 0:
+        return _production_import_error(
+            "Database import could not be completed safely."
+        )
+    return ProductionDataImportResponse(
+        ok=True,
+        data_source="database",
+        inserted=inserted,
+        updated=updated,
+        rejected=result.invalid_rows,
+        duplicate=result.duplicate_rows,
+        symbols_count=result.symbols_count,
+        latest_trade_date=result.latest_trade_date,
+        message="DSE OHLC CSV imported into database.",
+        warnings=result.warnings,
+        errors=result.errors,
+    )
 
 
 @router.post(
@@ -156,6 +226,8 @@ async def import_ohlc_database(
             data_source="database",
             inserted_rows=0,
             updated_rows=0,
+            rejected_rows=result.invalid_rows,
+            duplicate_rows=result.duplicate_rows,
             invalid_rows=result.invalid_rows,
             symbols_count=result.symbols_count,
             latest_trade_date=result.latest_trade_date,
@@ -171,6 +243,8 @@ async def import_ohlc_database(
         data_source="database",
         inserted_rows=inserted,
         updated_rows=updated,
+        rejected_rows=result.invalid_rows,
+        duplicate_rows=result.duplicate_rows,
         invalid_rows=result.invalid_rows,
         symbols_count=result.symbols_count,
         latest_trade_date=result.latest_trade_date,
@@ -200,12 +274,22 @@ def get_stale_symbols(
 
 @router.get("/status", response_model=DataStatusResponse)
 def get_data_status(
-    repository: Annotated[
+    database_manager: Annotated[
+        DatabaseManager,
+        Depends(get_database_manager),
+    ],
+    database_repository: Annotated[
+        OhlcDbRepository,
+        Depends(get_ohlc_db_repository),
+    ],
+    local_repository: Annotated[
         OhlcRepository,
         Depends(get_ohlc_repository),
     ],
 ) -> DataStatusResponse:
-    return repository.get_status()
+    if database_manager.configured or database_repository.is_available():
+        return database_repository.get_status()
+    return local_repository.get_status()
 
 
 @router.get("/source", response_model=DataSourceResponse)
@@ -252,8 +336,26 @@ def _database_import_error(message: str) -> DatabaseImportResponse:
         data_source="database",
         inserted_rows=0,
         updated_rows=0,
+        rejected_rows=0,
+        duplicate_rows=0,
         invalid_rows=0,
         symbols_count=0,
         latest_trade_date=None,
         message=message,
+    )
+
+
+def _production_import_error(message: str) -> ProductionDataImportResponse:
+    return ProductionDataImportResponse(
+        ok=False,
+        data_source="database",
+        inserted=0,
+        updated=0,
+        rejected=0,
+        duplicate=0,
+        symbols_count=0,
+        latest_trade_date=None,
+        message=message,
+        warnings=[],
+        errors=[message],
     )

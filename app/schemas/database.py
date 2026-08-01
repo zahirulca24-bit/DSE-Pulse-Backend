@@ -29,6 +29,8 @@ class DatabaseImportResponse(BaseModel):
     data_source: Literal["database"]
     inserted_rows: int
     updated_rows: int
+    rejected_rows: int = 0
+    duplicate_rows: int = 0
     invalid_rows: int
     symbols_count: int
     latest_trade_date: date | None
