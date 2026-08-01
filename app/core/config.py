@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     supabase_database_url: str = ""
     backend_admin_token: str = ""
     collector_admin_token: str = ""
+    dse_collector_source: str = ""
     ohlc_storage_path: Path = Path("storage/dse_ohlc.csv")
     scanner_storage_path: Path = Path("storage/scanner_latest.json")
     scanner_scheduler_state_path: Path = Path("storage/scanner_scheduler_state.json")

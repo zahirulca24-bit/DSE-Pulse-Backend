@@ -40,6 +40,22 @@ class DataImportResponse(BaseModel):
     errors: list[str]
 
 
+class ProductionDataImportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    data_source: Literal["database"]
+    inserted: int
+    updated: int
+    rejected: int
+    duplicate: int
+    symbols_count: int
+    latest_trade_date: date | None
+    message: str
+    warnings: list[str]
+    errors: list[str]
+
+
 class DataStatusResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

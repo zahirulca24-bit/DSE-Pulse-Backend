@@ -47,3 +47,21 @@ class CollectorHistoryResponse(BaseModel):
 
     count: int
     jobs: list[CollectorRunResponse]
+
+
+class CollectorStatusResponse(BaseModel):
+    """Production collector state and latest database import metrics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    running: bool
+    source: str | None
+    last_started_at: datetime | None
+    last_completed_at: datetime | None
+    last_error: str | None
+    symbols_updated: int
+    inserted_rows: int
+    updated_rows: int
+    rejected_rows: int
+    latest_trade_date: date | None

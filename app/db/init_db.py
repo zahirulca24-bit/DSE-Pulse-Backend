@@ -8,6 +8,7 @@ from app.db.database import DatabaseManager
 from app.db.models import Base
 
 _SCANNER_TABLE = "scanner_candidates"
+_OHLC_TABLE = "ohlc_daily"
 _REQUIRED_SCANNER_COLUMNS = {
     "qualification_passed",
     "qualification_failures_json",
@@ -24,10 +25,50 @@ def initialize_database(manager: DatabaseManager) -> bool:
     try:
         Base.metadata.create_all(bind=engine)
         with engine.begin() as connection:
+            _upgrade_ohlc_daily(connection)
             _upgrade_scanner_candidates(connection)
     except (SQLAlchemyError, RuntimeError):
         return False
     return True
+
+
+def _upgrade_ohlc_daily(connection: Connection) -> None:
+    """Normalize legacy OHLC rows and ensure symbol/date uniqueness."""
+
+    inspector = inspect(connection)
+    if _OHLC_TABLE not in inspector.get_table_names():
+        return
+
+    dialect = connection.dialect.name
+    if dialect == "postgresql":
+        connection.execute(text("UPDATE ohlc_daily SET symbol = UPPER(TRIM(symbol))"))
+        connection.execute(
+            text(
+                "DELETE FROM ohlc_daily duplicate "
+                "USING ohlc_daily keeper "
+                "WHERE UPPER(TRIM(duplicate.symbol)) = UPPER(TRIM(keeper.symbol)) "
+                "AND duplicate.trade_date = keeper.trade_date "
+                "AND duplicate.id > keeper.id"
+            )
+        )
+    else:
+        connection.execute(text("UPDATE ohlc_daily SET symbol = UPPER(TRIM(symbol))"))
+        connection.execute(
+            text(
+                "DELETE FROM ohlc_daily "
+                "WHERE id NOT IN ("
+                "SELECT MIN(id) FROM ohlc_daily "
+                "GROUP BY UPPER(TRIM(symbol)), trade_date"
+                ")"
+            )
+        )
+
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ohlc_daily_symbol_trade_date "
+            "ON ohlc_daily (symbol, trade_date)"
+        )
+    )
 
 
 def _upgrade_scanner_candidates(connection: Connection) -> None:

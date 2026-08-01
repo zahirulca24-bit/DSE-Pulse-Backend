@@ -1,16 +1,16 @@
-"""Database persistence for DSE collector jobs."""
+"""Database persistence for DSE collector jobs and production collector state."""
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.database import DatabaseManager
-from app.db.models import CollectorRun
-from app.schemas.collector import CollectorRunResponse
+from app.db.models import CollectorRun, CollectorState, OhlcDaily
+from app.schemas.collector import CollectorRunResponse, CollectorStatusResponse
 
 
 class CollectorRepository:
@@ -197,3 +197,122 @@ class CollectorRepository:
             started_at=record.started_at,
             completed_at=record.completed_at,
         )
+
+
+class CollectorDbRepository:
+    """Persist production collector state in the configured SQL database."""
+
+    def __init__(self, manager: DatabaseManager) -> None:
+        self._manager = manager
+
+    def is_available(self) -> bool:
+        return self._manager.has_tables(("collector_state", "collector_runs", "ohlc_daily"))
+
+    def jobs_available(self) -> bool:
+        return self._manager.has_tables(("collector_runs",))
+
+    def get_status(self, configured_source: str | None) -> CollectorStatusResponse:
+        latest_trade_date = self._latest_trade_date()
+        state = self._read_state()
+        latest_run = self._latest_run()
+        running = bool(latest_run and latest_run.status in {"queued", "running"})
+
+        return CollectorStatusResponse(
+            enabled=bool(state.enabled) if state else False,
+            running=running,
+            source=(state.source if state and state.source else configured_source),
+            last_started_at=state.last_started_at if state else None,
+            last_completed_at=state.last_completed_at if state else None,
+            last_error=state.last_error if state else None,
+            symbols_updated=state.symbols_updated if state else 0,
+            inserted_rows=state.inserted_rows if state else 0,
+            updated_rows=state.updated_rows if state else 0,
+            rejected_rows=state.rejected_rows if state else 0,
+            latest_trade_date=latest_trade_date,
+        )
+
+    def set_enabled(self, enabled: bool, source: str | None) -> CollectorStatusResponse:
+        with self._manager.session() as session:
+            state = session.get(CollectorState, 1)
+            if state is None:
+                state = CollectorState(id=1)
+                session.add(state)
+            state.enabled = enabled
+            state.source = source
+            state.last_error = None
+            session.commit()
+        return self.get_status(source)
+
+    def mark_started(self, source: str) -> None:
+        now = datetime.now(UTC)
+        with self._manager.session() as session:
+            state = session.get(CollectorState, 1)
+            if state is None:
+                state = CollectorState(id=1, enabled=True)
+                session.add(state)
+            state.source = source
+            state.last_started_at = now
+            state.last_error = None
+            session.commit()
+
+    def mark_completed(
+        self,
+        *,
+        source: str,
+        symbols_updated: int,
+        inserted_rows: int,
+        updated_rows: int,
+        rejected_rows: int,
+    ) -> None:
+        now = datetime.now(UTC)
+        with self._manager.session() as session:
+            state = session.get(CollectorState, 1)
+            if state is None:
+                state = CollectorState(id=1, enabled=True)
+                session.add(state)
+            state.source = source
+            state.last_completed_at = now
+            state.last_error = None
+            state.symbols_updated = symbols_updated
+            state.inserted_rows = inserted_rows
+            state.updated_rows = updated_rows
+            state.rejected_rows = rejected_rows
+            session.commit()
+
+    def mark_failed(self, source: str | None, message: str) -> None:
+        with self._manager.session() as session:
+            state = session.get(CollectorState, 1)
+            if state is None:
+                state = CollectorState(id=1)
+                session.add(state)
+            state.source = source
+            state.last_error = message[:2000]
+            state.last_completed_at = datetime.now(UTC)
+            session.commit()
+
+    def _read_state(self) -> CollectorState | None:
+        if not self.is_available():
+            return None
+        try:
+            with self._manager.session() as session:
+                return session.get(CollectorState, 1)
+        except (SQLAlchemyError, RuntimeError):
+            return None
+
+    def _latest_run(self) -> CollectorRun | None:
+        if not self.jobs_available():
+            return None
+        try:
+            with self._manager.session() as session:
+                return session.scalar(select(CollectorRun).order_by(CollectorRun.created_at.desc()).limit(1))
+        except (SQLAlchemyError, RuntimeError):
+            return None
+
+    def _latest_trade_date(self) -> date | None:
+        if not self._manager.has_tables(("ohlc_daily",)):
+            return None
+        try:
+            with self._manager.session() as session:
+                return session.scalar(select(func.max(OhlcDaily.trade_date)))
+        except (SQLAlchemyError, RuntimeError):
+            return None

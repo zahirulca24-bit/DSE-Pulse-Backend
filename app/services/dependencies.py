@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from app.core.config import get_settings
 from app.db.database import DatabaseManager
+from app.repositories.collector_repository import CollectorDbRepository
 from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.repositories.scanner_db_repository import ScannerDbRepository
 from app.services.collector_job_repository import CollectorJobRepository
@@ -15,6 +16,7 @@ from app.services.drive_ohlc_repository import DriveOhlcRepository
 from app.services.google_drive_client import GoogleDriveClient
 from app.services.indicator_service import IndicatorService
 from app.services.ohlc_repository import OhlcRepository
+from app.services.production_collector_service import ProductionCollectorService
 from app.services.scanner_engine import ScannerEngine
 from app.services.scanner_repository import ScannerRepository
 from app.services.scanner_scheduler import MarketScannerScheduler
@@ -94,6 +96,30 @@ def get_collector_repository() -> CollectorJobRepository:
 
 def get_collector_source() -> CollectorSource:
     return BdshareCollectorSource()
+
+
+def get_configured_collector_source() -> CollectorSource | None:
+    source = get_settings().dse_collector_source.strip().lower()
+    if source == "bdshare":
+        return BdshareCollectorSource()
+    return None
+
+
+def get_configured_collector_source_name() -> str | None:
+    return get_settings().dse_collector_source.strip() or None
+
+
+def get_collector_db_repository() -> CollectorDbRepository:
+    return CollectorDbRepository(get_database_manager())
+
+
+def get_production_collector_service() -> ProductionCollectorService:
+    return ProductionCollectorService(
+        repository=get_collector_db_repository(),
+        ohlc_repository=get_ohlc_db_repository(),
+        source=get_configured_collector_source(),
+        source_name=get_configured_collector_source_name(),
+    )
 
 
 def get_collector_service() -> CollectorService:
