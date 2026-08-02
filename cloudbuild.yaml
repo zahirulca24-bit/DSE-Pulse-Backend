@@ -37,7 +37,7 @@ steps:
       - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
       - --add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
       - --update-secrets=DATABASE_URL=dse-pulse-database-url:latest,BACKEND_ADMIN_TOKEN=dse-pulse-backend-admin-token:latest,COLLECTOR_ADMIN_TOKEN=dse-pulse-collector-admin-token:latest
-      - --update-env-vars=APP_MODE=production,FRONTEND_ORIGIN=${_FRONTEND_ORIGIN},SCANNER_SCHEDULER_ENABLED=false,OHLC_STORAGE_PATH=/tmp/dse_ohlcv.csv,SCANNER_STORAGE_PATH=/tmp/scanner_latest.json,SCANNER_SCHEDULER_STATE_PATH=/tmp/scanner_scheduler_state.json,COLLECTOR_STORAGE_PATH=/tmp/collector_jobs.json
+      - --update-env-vars=APP_MODE=production,FRONTEND_ORIGIN=${_FRONTEND_ORIGIN},DSE_COLLECTOR_SOURCE=bdshare,SCANNER_SCHEDULER_ENABLED=false,OHLC_STORAGE_PATH=/tmp/dse_ohlcv.csv,SCANNER_STORAGE_PATH=/tmp/scanner_latest.json,SCANNER_SCHEDULER_STATE_PATH=/tmp/scanner_scheduler_state.json,COLLECTOR_STORAGE_PATH=/tmp/collector_jobs.json
       - --quiet
 
 images:
