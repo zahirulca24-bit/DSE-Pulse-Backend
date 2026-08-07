@@ -10,7 +10,7 @@ from app.schemas.collector import (
     CollectorRunResponse,
     CollectorStatusResponse,
 )
-from app.security.admin import require_backend_admin, require_collector_admin
+from app.security.admin import require_backend_admin, require_collector_run_authorization
 from app.services.collector_service import CollectorService
 from app.services.dependencies import get_collector_service, get_production_collector_service
 from app.services.production_collector_service import (
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/collector", tags=["collector"])
 @router.post(
     "/run",
     response_model=CollectorStatusResponse,
-    dependencies=[Depends(require_collector_admin)],
+    dependencies=[Depends(require_collector_run_authorization)],
 )
 def run_collector(
     request: CollectorRunRequest,
