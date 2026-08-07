@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.cors import normalize_origins
+
 _PRODUCTION_MODES = {"production", "prod"}
 
 
@@ -16,6 +18,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_mode: str = "demo"
     frontend_origin: str = ""
+    cors_origins_extra: str = ""
     database_url: str = ""
     supabase_database_url: str = ""
     backend_admin_token: str = ""
@@ -85,13 +88,14 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         """Return explicit browser origins with no development leakage in production."""
 
-        production_origin = self.frontend_origin.strip().rstrip("/")
+        production_origins = normalize_origins(self.frontend_origin, self.cors_origins_extra)
         if self.is_production:
-            return [production_origin] if production_origin else []
+            return production_origins
 
         origins = ["http://localhost:3000", "http://localhost:5173"]
-        if production_origin and production_origin not in origins:
-            origins.append(production_origin)
+        for origin in production_origins:
+            if origin not in origins:
+                origins.append(origin)
         return origins
 
 
