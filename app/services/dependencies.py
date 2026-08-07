@@ -67,16 +67,14 @@ def get_drive_ohlc_repository() -> DriveOhlcRepository:
 
 
 def get_ohlc_repository() -> OhlcRepository:
-    """Return the active local OHLC cache.
-
-    Production persistence will move to Cloud SQL / Google Cloud Storage in the
-    Google Cloud deployment phase. Vercel Blob is intentionally unsupported.
-    """
+    """Return the non-production local OHLC compatibility cache."""
 
     return get_local_ohlc_repository()
 
 
 def get_scanner_repository() -> ScannerRepository:
+    """Return the non-production local scanner-result compatibility store."""
+
     return ScannerRepository(get_settings().scanner_storage_path)
 
 
@@ -138,12 +136,16 @@ def get_scanner_engine() -> ScannerEngine:
 
 
 def get_scanner_service() -> ScannerService:
-    """Build the single scanner execution path used by manual and scheduled scans."""
+    """Build the authoritative scanner path for current runtime settings."""
 
+    settings = get_settings()
     return ScannerService(
         get_ohlc_repository(),
         get_scanner_repository(),
         get_scanner_engine(),
+        database_ohlc_repository=get_ohlc_db_repository(),
+        database_scanner_repository=get_scanner_db_repository(),
+        production=settings.is_production,
     )
 
 
