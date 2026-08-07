@@ -1,13 +1,18 @@
 """Scanner readiness, source selection, execution, and persistence service."""
 
+from typing import Literal
+
 from app.data.symbol_metadata import PHASE1_SYMBOLS
 from app.repositories.ohlc_db_repository import OhlcDbRepository
 from app.repositories.scanner_db_repository import ScannerDbRepository
+from app.schemas.ohlc import OhlcRow
 from app.schemas.scanner import ScannerStatusResponse
 from app.schemas.scanner_result import ScannerResultResponse
 from app.services.ohlc_repository import OhlcRepository
 from app.services.scanner_engine import ScannerEngine
 from app.services.scanner_repository import ScannerRepository
+
+ScannerSource = Literal["database", "local_csv"]
 
 
 class ScannerService:
@@ -89,6 +94,24 @@ class ScannerService:
         if self._scanner_engine is None:
             raise RuntimeError("Scanner execution engine is not configured.")
 
+        if self._database_data_available() and not self._database_persistence_available():
+            return ScannerResultResponse(
+                ok=False,
+                mode="database",
+                data_source="database",
+                scanned_symbols=0,
+                eligible_symbols=0,
+                qualified_count=0,
+                watch_count=0,
+                rejected_count=0,
+                generated_at=None,
+                message=(
+                    "Verified database OHLC data exists, but scanner database persistence "
+                    "is unavailable. Execution was blocked fail-closed."
+                ),
+                candidates=[],
+            )
+
         source, rows = self._load_active_rows()
         if not rows:
             message = (
@@ -141,7 +164,10 @@ class ScannerService:
             return result
 
         if source == "database":
-            if self._database_scanner_repository is None or not self._database_scanner_repository.save(result):
+            if (
+                self._database_scanner_repository is None
+                or not self._database_scanner_repository.save(result)
+            ):
                 return ScannerResultResponse(
                     ok=False,
                     mode="database",
@@ -163,10 +189,8 @@ class ScannerService:
 
         return result
 
-    def _load_active_rows(self) -> tuple[str, list]:
+    def _load_active_rows(self) -> tuple[ScannerSource, list[OhlcRow]]:
         if self._database_data_available() and self._database_ohlc_repository is not None:
-            if not self._database_persistence_available():
-                return "database", []
             return "database", self._database_ohlc_repository.get_all_rows()
 
         if self._production:
