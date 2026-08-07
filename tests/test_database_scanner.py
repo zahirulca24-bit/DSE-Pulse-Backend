@@ -1,6 +1,9 @@
 """Prove database OHLC and scanner persistence are authoritative when available."""
 
+import pytest
 from fastapi.testclient import TestClient
+
+from app.core.config import get_settings
 
 
 def test_database_only_rows_drive_scanner_and_persist_latest(
@@ -93,3 +96,33 @@ def test_non_production_can_fallback_to_local_when_database_has_no_rows(
     latest = database_client.get("/scanner/latest").json()
     assert latest["mode"] == "local_csv"
     assert latest["data_source"] == "local_csv"
+
+
+def test_production_never_falls_back_to_ephemeral_local_storage(
+    database_client: TestClient,
+    scanner_csv: bytes,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_import = database_client.post(
+        "/data/ohlc/import",
+        files={"file": ("cache.csv", scanner_csv, "text/csv")},
+    ).json()
+    assert cache_import["ok"] is True
+
+    monkeypatch.setenv("APP_MODE", "production")
+    get_settings.cache_clear()
+
+    result = database_client.post("/scanner/run").json()
+    assert result["ok"] is False
+    assert result["mode"] == "no_data"
+    assert result["data_source"] == "none"
+    assert result["candidates"] == []
+
+    latest = database_client.get("/scanner/latest").json()
+    assert latest["ok"] is False
+    assert latest["mode"] == "no_scan"
+    assert latest["data_source"] == "none"
+
+    status = database_client.get("/scanner/status").json()
+    assert status["scanner_ready"] is False
+    assert status["universe_source"] == "none"
