@@ -1,16 +1,16 @@
-"""Return only real signals from the approved cache-backed scanner result."""
+"""Return only real signals from the authoritative persisted scanner result."""
 
 from app.core.signal_rules import public_signal_rules
 from app.schemas.signals import SignalsResponse
-from app.services.scanner_repository import ScannerRepository
+from app.services.scanner_service import ScannerService
 
 
 class SignalService:
-    def __init__(self, repository: ScannerRepository) -> None:
-        self._repository = repository
+    def __init__(self, scanner_service: ScannerService) -> None:
+        self._scanner_service = scanner_service
 
     def get_signals(self) -> SignalsResponse:
-        latest = self._repository.load()
+        latest = self._scanner_service.load_latest()
 
         if latest is not None and latest.ok:
             candidates = [
