@@ -65,6 +65,70 @@ def test_admin_token_allows_protected_preview(
     assert response.json()["valid_rows"] == 1
 
 
+def test_collector_run_is_disabled_without_any_execution_token(
+    raw_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BACKEND_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("COLLECTOR_ADMIN_TOKEN", raising=False)
+    get_settings.cache_clear()
+
+    response = raw_client.post("/collector/run", json={})
+
+    assert response.status_code == 503
+    assert "COLLECTOR_ADMIN_TOKEN" in response.json()["detail"]
+    assert "BACKEND_ADMIN_TOKEN" in response.json()["detail"]
+
+
+def test_collector_run_rejects_wrong_collector_token(
+    raw_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "collector-secret")
+    get_settings.cache_clear()
+
+    response = raw_client.post(
+        "/collector/run",
+        headers={"X-Collector-Token": "wrong-secret"},
+        json={},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Collector authorization failed."
+
+
+def test_backend_admin_header_can_authorize_manual_collector_run(
+    raw_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BACKEND_ADMIN_TOKEN", "backend-secret")
+    get_settings.cache_clear()
+
+    response = raw_client.post(
+        "/collector/run",
+        headers={"X-Admin-Token": "backend-secret"},
+        json={},
+    )
+
+    assert response.status_code != 403
+
+
+def test_collector_token_passes_scheduler_authorization_guard(
+    raw_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COLLECTOR_ADMIN_TOKEN", "collector-secret")
+    get_settings.cache_clear()
+
+    response = raw_client.post(
+        "/collector/run",
+        headers={"X-Collector-Token": "collector-secret"},
+        json={},
+    )
+
+    assert response.status_code != 403
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     [

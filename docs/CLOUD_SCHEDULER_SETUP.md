@@ -4,11 +4,13 @@ Production scheduling must call protected backend routes. The in-process schedul
 
 ## Required values
 
+The Cloud Run service must have `COLLECTOR_ADMIN_TOKEN` configured. The local shell variable below must contain the same secret value; it is sent only in the dedicated `X-Collector-Token` scheduler header.
+
 ```bash
 export PROJECT_ID="your-project-id"
 export REGION="asia-south1"
 export SERVICE="dse-pulse-backend"
-export COLLECTOR_TOKEN="replace-with-secret-value"
+export COLLECTOR_TOKEN="same-value-as-COLLECTOR_ADMIN_TOKEN"
 ```
 
 Resolve the Cloud Run URL:
@@ -41,4 +43,4 @@ Use `gcloud scheduler jobs update http` instead when the job already exists.
 4. Confirm new OHLC rows exist in Cloud SQL.
 5. Confirm no administrative token is exposed in frontend variables or browser requests.
 
-The service remains publicly reachable for read-only frontend routes, while collector and administrative routes remain protected by application tokens.
+The service remains publicly reachable for read-only frontend routes, while collector and administrative routes remain protected by separate application tokens.
