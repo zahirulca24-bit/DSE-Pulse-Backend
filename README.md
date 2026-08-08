@@ -6,15 +6,14 @@ DSE Pulse is a production-oriented backend for verified Dhaka Stock Exchange mar
 
 ## Current Status
 
-- **Date:** 31 July 2026
-- **Current phase:** Phase 4 — Scanner & Signal Engine completed
-- **Current progress:** 58%
-- **Next phase:** Phase 5 — Frontend Integration
+- **Date:** 08 August 2026
+- **Current priority:** DSE Data Foundation stabilization
+- **Current phase:** Data collection, historical completeness, validation, and recovery hardening
 - **Deployment target:** Google Cloud
 - **Production scheduler rule:** no in-process scheduler in production
 - **Data policy:** verified DSE data only; no mock, demo, or synthetic market data
 
-> Release gate: the legacy `scanner_candidates` database schema migration must be merged and verified before Phase 5 begins.
+> Current release gate: the market-data foundation must be dependable, duplicate-safe, gap-aware, recoverable, and observable before scanner, backtest, or strategy expansion is treated as the primary development priority.
 
 ## Target Architecture
 
@@ -95,6 +94,118 @@ A high score alone is not enough. A+/A candidates must also pass:
 - source selection is consistent across status, symbol, and OHLC routes
 - failed scanner runs do not replace the latest valid result
 
+## DSE Data Foundation Plan — 08 August 2026
+
+The immediate objective is to make the DSE dataset complete, duplicate-free, gap-aware, recoverable, and easy to monitor. Scanner, AI signal, and backtest expansion remain secondary until the data foundation is verified.
+
+### Phase 1 — Current Data Audit
+
+Verify the existing data path before changing architecture:
+
+- identify every active market-data source
+- identify the canonical database table and any local/raw storage
+- verify the latest stored market date
+- count symbols and total OHLCV rows
+- detect duplicate `(symbol, trade_date)` rows
+- detect missing trading dates and symbol-level gaps
+- verify manual collector execution
+- verify Cloud Scheduler collector execution
+- verify collector enabled/disabled state behavior
+
+**Output:** a reproducible Data Health Report that establishes the current baseline.
+
+### Phase 2 — Collector Hardening
+
+Strengthen the existing collector instead of replacing it without evidence:
+
+- persisted collector `enabled` state must gate collection
+- `Run Now` must return a durable success/failure result
+- frontend refresh must not erase a failed-run error
+- add bounded retry and timeout handling
+- isolate symbol/source failures so one failure does not abort the full run where safe
+- use duplicate-safe/idempotent upsert behavior
+- make same-day reruns safe
+- persist collection job status and failure reason
+
+### Phase 3 — Historical Backfill Engine
+
+Add targeted historical recovery instead of repeatedly rebuilding the full dataset:
+
+- detect missing symbol/date ranges
+- calculate the latest required market date
+- fetch only the missing range where the source permits
+- backfill symbol-level gaps independently
+- rerun validation after backfill
+- record unresolved gaps when the upstream source cannot provide data
+
+Example:
+
+```text
+ABBANK
+Missing: 2026-07-20 → 2026-07-23
+Action: fetch and validate only the missing range
+```
+
+### Phase 4 — Validation and Canonical Database
+
+Use a clear ingestion pipeline:
+
+```text
+Source → Raw Data → Validation → Canonical DSE OHLCV Table
+```
+
+Validation requirements:
+
+- `high >= open`
+- `high >= close`
+- `low <= open`
+- `low <= close`
+- OHLC prices must be positive
+- invalid or suspicious volume must be flagged or rejected according to an explicit rule
+- duplicate rows must be detected deterministically
+- unknown/unexpected symbols must be reported
+- stale data must be detectable
+- canonical uniqueness must be enforced on `(symbol, trade_date)`
+
+Repeated collection of the same market day must not create duplicate canonical rows.
+
+### Phase 5 — Automatic Daily Operation and Data Health
+
+After Phases 1–4 are verified, the normal market-day flow should be:
+
+```text
+Collect → Validate → Upsert → Gap Check → Health Update
+```
+
+The frontend Data Collector / Data Health area should expose:
+
+- Collector ON/OFF
+- Last Successful Run
+- Last Failed Run
+- Latest Market Date
+- Total Symbols
+- Total Rows
+- Missing Data Count
+- Failed Symbols
+- Gap Count
+- Run Now
+- Backfill Missing Data
+
+### Data Foundation Completion Gate
+
+The data foundation is considered ready only when all of the following are verified:
+
+- daily collection is reliable
+- manual and scheduled collection both work
+- collector OFF state is respected
+- reruns are idempotent
+- duplicate canonical rows are prevented
+- historical gaps are detectable
+- supported gaps can be backfilled
+- failed jobs preserve actionable error details
+- latest market date and dataset health are visible
+- no mock or synthetic market data is used
+
 ## Main API Areas
 
 - health and readiness
@@ -137,24 +248,23 @@ Environment variable names and production requirements are documented in `.env.e
 
 ## Development Roadmap
 
-| Phase | Scope | Progress |
-|---|---|---:|
-| 1 | Repository Foundation | 10% complete |
-| 2 | Backend Security & Stability | 25% complete |
-| 3 | Market Data Pipeline | 40% complete |
-| 4 | Scanner & Signal Engine | 58% complete |
-| 5 | Frontend Integration | 58% → 75% |
-| 6 | Testing & Verification | 75% → 86% |
-| 7 | Google Cloud Preparation | 86% → 94% |
-| 8 | Google Cloud Deployment | 94% → 98% |
-| 9 | Production Audit | 98% → 100% |
+| Priority | Scope | Status |
+|---|---|---|
+| 1 | Current Data Audit | Next |
+| 2 | Collector Hardening | Planned |
+| 3 | Historical Backfill Engine | Planned |
+| 4 | Validation & Canonical Database | Planned |
+| 5 | Automatic Daily Operation & Data Health | Planned |
+| 6 | Scanner / Signal verification on trusted data | After data foundation |
+| 7 | Backtest / strategy expansion | After data foundation |
 
 ## Immediate Next Work
 
-1. Merge and verify the legacy scanner schema migration.
-2. Lock the frontend-facing API contract.
-3. Begin Phase 5 frontend integration for Dashboard, Scanner, Signal Board, Stock Detail, Data Status, and Admin Import.
-4. Keep frontend data strictly connected to verified backend responses; no mock UI data.
+1. Execute Phase 1 Current Data Audit against the actual repository and stored dataset.
+2. Establish latest market date, symbol count, row count, duplicates, and missing-data gaps.
+3. Verify manual collector and Cloud Scheduler execution paths.
+4. Verify persisted collector enabled/disabled state is authoritative.
+5. Produce the Data Health Report before implementing additional collector changes.
 
 ## Production Principles
 
@@ -165,3 +275,4 @@ Environment variable names and production requirements are documented in `.env.e
 - Cloud Scheduler triggers production jobs
 - Cloud Run instances do not run an internal scheduler
 - no deployment claim is made until build, migration, connectivity, and persistence are verified
+- no data-completeness claim is made without row, symbol, duplicate, gap, and latest-date verification
